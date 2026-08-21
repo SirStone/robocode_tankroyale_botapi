@@ -1,0 +1,11 @@
+{
+  "name": "HelloWorld (Nim)",
+  "version": "1.0",
+  "authors": ["Davide Cappellini"],
+  "description": "A simple hello world bot",
+  "homepage": "",
+  "countryCodes": ["IT"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

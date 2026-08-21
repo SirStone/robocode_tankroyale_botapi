@@ -1,0 +1,11 @@
+{
+  "name": "TrackFire (Nim)",
+  "version": "1.0",
+  "authors": ["Mathew Nelson"],
+  "description": "Sits still while tracking and firing at the nearest robot it detects",
+  "homepage": "",
+  "countryCodes": ["US"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

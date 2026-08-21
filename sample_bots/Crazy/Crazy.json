@@ -1,0 +1,11 @@
+{
+  "name": "Crazy (Nim)",
+  "version": "1.0",
+  "authors": ["Davide Cappellini"],
+  "description": "This bot moves around in a crazy pattern.",
+  "homepage": "",
+  "countryCodes": ["IT"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

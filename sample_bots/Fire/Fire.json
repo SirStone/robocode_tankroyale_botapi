@@ -1,0 +1,11 @@
+{
+  "name": "Fire (Nim)",
+  "version": "1.0",
+  "authors": ["Davide Cappellini"],
+  "description": "Sits still, rotates its gun, and fires when it detects an enemy. Moves when hit.",
+  "homepage": "",
+  "countryCodes": ["IT"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

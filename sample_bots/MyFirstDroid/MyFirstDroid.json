@@ -1,0 +1,15 @@
+{
+  "name": "My First Droid (Nim)",
+  "version": "1.0",
+  "authors": [
+    "Mathew Nelson",
+    "Flemming N. Larsen"
+  ],
+  "description": "A droid bot with more energy but no radar. Member of MyFirstTeam. Follows orders from the team leader.",
+  "homepage": "",
+  "countryCodes": ["us", "dk"],
+  "gameTypes": ["classic", "melee"],
+  "platform": "Nim",
+  "programmingLang": "Nim",
+  "isDroid": true
+}

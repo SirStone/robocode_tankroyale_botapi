@@ -1,0 +1,14 @@
+{
+  "name": "My First Leader (Nim)",
+  "version": "1.0",
+  "authors": [
+    "Mathew Nelson",
+    "Flemming N. Larsen"
+  ],
+  "description": "Member of MyFirstTeam. Looks around for enemies and orders teammates to fire.",
+  "homepage": "",
+  "countryCodes": ["us", "dk"],
+  "gameTypes": ["classic", "melee"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

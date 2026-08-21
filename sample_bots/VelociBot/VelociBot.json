@@ -1,0 +1,11 @@
+{
+  "name": "VelociBot (Nim)",
+  "version": "1.0",
+  "authors": ["Joshua Galecki"],
+  "description": "Example bot demonstrating how to use turn rates",
+  "homepage": "",
+  "countryCodes": ["US"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

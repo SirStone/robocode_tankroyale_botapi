@@ -1,0 +1,11 @@
+{
+  "name": "SpinBot (Nim)",
+  "version": "1.0",
+  "authors": ["Davide Cappellini"],
+  "description": "Continuously moves in a circle while firing at maximum power when detecting enemies.",
+  "homepage": "",
+  "countryCodes": ["IT"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

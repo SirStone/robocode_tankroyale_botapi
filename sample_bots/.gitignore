@@ -1,0 +1,11 @@
+# Ignore compiled Nim executables (extensionless binaries produced by nim c)
+# All source files (.nim, .json, .sh, .cmd, .md) are tracked normally.
+*
+!*/
+.nimcache/
+!*.nim
+!*.json
+!*.sh
+!*.cmd
+!*.md
+!.gitignore

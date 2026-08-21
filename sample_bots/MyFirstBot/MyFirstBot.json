@@ -1,0 +1,11 @@
+{
+  "name": "MyFirstBot (Nim)",
+  "version": "1.0",
+  "authors": ["Davide Cappellini"],
+  "description": "Moves in a seesaw pattern and spins the gun around at each end.",
+  "homepage": "",
+  "countryCodes": ["IT"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

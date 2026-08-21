@@ -1,0 +1,11 @@
+{
+  "name": "RamFire (Nim)",
+  "version": "1.0",
+  "authors": ["Mathew Nelson"],
+  "description": "Actively seeks out opponents, rams them, and fires accordingly",
+  "homepage": "",
+  "countryCodes": ["US"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}

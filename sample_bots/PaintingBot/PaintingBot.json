@@ -1,0 +1,12 @@
+{
+  "name": "Painting Bot (Nim)",
+  "version": "1.0",
+  "authors": ["Pavel Savara", "Flemming N. Larsen"],
+  "description": "Demonstrates debug graphics by drawing a fading red circle at the last known position of a scanned bot. Enable Graphical Debugging when running a battle.",
+  "homepage": "",
+  "countryCodes": ["cz", "dk"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim",
+  "license": "Apache-2.0"
+}

@@ -1,0 +1,57 @@
+# Nim compiled files
+nimcache/
+.nimcache/
+nimblecache/
+htmldocs/
+
+# Compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.out
+*.app
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Build artifacts
+/build/
+/dist/
+/docs/
+
+# Nimble generated files
+nimble.develop
+nimble.paths
+pkgs2/
+
+# Test results
+*.log
+testresults/
+
+# Coverage
+coverage/
+*.gcov
+*.gcda
+*.gcno
+
+# Devbox (keep configuration, ignore generated)
+.devbox/gen/
+.devbox/nix/
+.devbox/.lock
+
+# Temporary files
+*.tmp
+*.bak
+*.orig
+
+# Sample bot compiled binaries (keep source, ignore binaries)
+sample_bots/*/*
+!sample_bots/*/*.nim
+!sample_bots/*/*.json
+!sample_bots/*/*.md

@@ -1,0 +1,11 @@
+{
+  "name": "Target (Nim)",
+  "version": "1.0",
+  "authors": ["Mathew Nelson"],
+  "description": "A stationary bot that moves when its energy drops below a certain threshold",
+  "homepage": "",
+  "countryCodes": ["US"],
+  "gameTypes": ["classic", "melee", "1v1"],
+  "platform": "Nim",
+  "programmingLang": "Nim"
+}
