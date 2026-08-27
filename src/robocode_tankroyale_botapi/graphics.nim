@@ -3,6 +3,7 @@
 ## BotIntent.debugGraphics each tick and cleared afterward.
 
 import std/strformat
+import std/xmltree
 import ./color
 
 # ---------------------------------------------------------------------------
@@ -76,7 +77,7 @@ proc fillCircle*(x, y, r: float) =
   appendSvg(&"<circle cx=\"{x}\" cy=\"{y}\" r=\"{r}\" {attrs}/>")
 
 proc drawText*(text: string; x, y: float) =
-  appendSvg(&"<text x=\"{x}\" y=\"{y}\" font-family=\"{gFontFamily}\" font-size=\"{gFontSize}\">{text}</text>")
+  appendSvg(&"<text x=\"{x}\" y=\"{y}\" font-family=\"{escape(gFontFamily)}\" font-size=\"{gFontSize}\">{escape(text)}</text>")
 
 proc drawPolygon*(points: seq[(float, float)]) =
   var pts = ""
