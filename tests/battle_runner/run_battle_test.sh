@@ -5,11 +5,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 # ── JAR location ──────────────────────────────────────────────────────────────
-DEFAULT_JAR="/home/davide/Projects/tank-royale/runner/examples/lib/robocode-tankroyale-runner.jar"
-if [ ! -f "$DEFAULT_JAR" ]; then
-    DEFAULT_JAR="$(find /home/davide/Projects/tank-royale -name "robocode-tankroyale-runner*.jar" 2>/dev/null | head -1)"
+if [ -n "${TANK_ROYALE_JAR:-}" ] && [ -f "$TANK_ROYALE_JAR" ]; then
+    JAR="$TANK_ROYALE_JAR"
+else
+    JAR="/home/davide/Projects/tank-royale/runner/examples/lib/robocode-tankroyale-runner.jar"
+    if [ ! -f "$JAR" ]; then
+        JAR="$(find /home/davide/Projects/tank-royale -name "robocode-tankroyale-runner*.jar" 2>/dev/null | head -1)"
+    fi
 fi
-JAR="${TANK_ROYALE_JAR:-$DEFAULT_JAR}"
 
 if [ ! -f "$JAR" ]; then
     echo "ERROR: runner JAR not found. Set TANK_ROYALE_JAR env var." >&2

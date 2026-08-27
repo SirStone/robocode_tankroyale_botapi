@@ -15,5 +15,5 @@ task unit, "Run unit tests":
 
 task test, "Run all tests (unit + battle integration)":
   exec "nimble unit"
-  exec "nim c --threads:on --hints:off -o:MyFirstBot sample_bots/MyFirstBot/MyFirstBot.nim"
+  exec "nimble build"
   exec "tests/battle_runner/run_battle_test.sh"
