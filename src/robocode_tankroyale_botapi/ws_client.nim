@@ -4,6 +4,8 @@
 
 import std/[net, base64, random, strutils, uri]
 
+const WS_RECV_TIMEOUT_MS* = 30_000  ## Per-read timeout; raise TimeoutError on breach.
+
 type
   SyncWebSocket* = ref object
     socket*:    Socket
@@ -53,9 +55,10 @@ proc encodeTextFrame*(payload: string, masked: bool = true): string =
 proc decodeFrame*(socket: Socket): string =
   ## Read one complete WebSocket frame from the socket and return the payload.
   ## Handles text frames; pings are responded to automatically.
+  ## Raises TimeoutError (from std/net) if no data arrives within WS_RECV_TIMEOUT_MS.
   while true:
     var header: array[2, uint8]
-    discard socket.recv(addr header[0], 2)
+    discard socket.recv(addr header[0], 2, WS_RECV_TIMEOUT_MS)
     let fin    = (header[0] and 0x80) != 0
     let opcode = header[0] and 0x0F
     let masked = (header[1] and 0x80) != 0
@@ -63,21 +66,21 @@ proc decodeFrame*(socket: Socket): string =
 
     if plen == 126:
       var ext: array[2, uint8]
-      discard socket.recv(addr ext[0], 2)
+      discard socket.recv(addr ext[0], 2, WS_RECV_TIMEOUT_MS)
       plen = int(ext[0]) shl 8 or int(ext[1])
     elif plen == 127:
       var ext: array[8, uint8]
-      discard socket.recv(addr ext[0], 8)
+      discard socket.recv(addr ext[0], 8, WS_RECV_TIMEOUT_MS)
       plen = 0
       for b in ext: plen = (plen shl 8) or int(b)
 
     var maskKey: array[4, uint8]
     if masked:
-      discard socket.recv(addr maskKey[0], 4)
+      discard socket.recv(addr maskKey[0], 4, WS_RECV_TIMEOUT_MS)
 
     var payload = newString(plen)
     if plen > 0:
-      discard socket.recv(addr payload[0], plen)
+      discard socket.recv(addr payload[0], plen, WS_RECV_TIMEOUT_MS)
 
     if masked:
       for i in 0 ..< plen:
@@ -146,10 +149,14 @@ proc send*(ws: SyncWebSocket, text: string) =
 
 proc receive*(ws: SyncWebSocket): string =
   ## Block until a text message arrives. Returns "" on close.
+  ## Raises TimeoutError if no data arrives within WS_RECV_TIMEOUT_MS (caller should retry).
+  ## Raises WebSocketError on hard socket failure (caller should disconnect).
   if not ws.connected:
     return ""
   try:
     result = decodeFrame(ws.socket)
+  except TimeoutError:
+    raise  # let caller decide: retry vs disconnect
   except Exception as e:
     ws.connected = false
     raise newException(WebSocketError, "Receive failed: " & e.msg)

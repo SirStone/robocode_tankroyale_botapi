@@ -11,7 +11,7 @@
 ##   var bot = MyBot()
 ##   start(bot, "MyBot.json")
 
-import std/[os, json]
+import std/[net, os, json]
 
 import ./robocode_tankroyale_botapi/constants
 import ./robocode_tankroyale_botapi/color
@@ -139,12 +139,25 @@ proc handleTick(node: JsonNode) =
   processTickOnMainThread()         # motion tracking (while bot is blocked)
   wakeBotThread()                   # wake bot — state + motion ready
 
+const WS_MAX_CONSECUTIVE_TIMEOUTS = 5  ## Disconnect after this many consecutive recv timeouts.
+
 proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl: string) =
   ## Main WebSocket receive loop. Blocks until disconnected.
+  var consecutiveTimeouts = 0
   while ws.connected:
     var msg: string
     try:
       msg = ws.receive()
+      consecutiveTimeouts = 0  # reset on any successful recv
+    except TimeoutError:
+      inc consecutiveTimeouts
+      stderr.writeLine "[ws] recv timeout (" & $consecutiveTimeouts & "/" &
+        $WS_MAX_CONSECUTIVE_TIMEOUTS & ") — server silent, retrying"
+      if consecutiveTimeouts >= WS_MAX_CONSECUTIVE_TIMEOUTS:
+        stderr.writeLine "[ws] max consecutive timeouts reached — disconnecting"
+        ws.connected = false
+        break
+      continue
     except Exception as e:
       stderr.writeLine "[ws] receive error: " & e.msg
       gBot.onConnectionError(ConnectionErrorEvent(serverUrl: serverUrl, error: e.msg))
