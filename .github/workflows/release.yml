@@ -1,0 +1,140 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+
+      - name: Cache nimble
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
+          restore-keys: ${{ runner.os }}-nimble-
+
+      - name: Install dependencies
+        run: nimble install -y --depsOnly
+
+      - name: Run tests
+        run: nimble test -y
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            platform: linux
+          - os: macos-latest
+            platform: macos
+          - os: windows-latest
+            platform: windows
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: stable
+
+      - name: Cache nimble
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble
+          key: ${{ runner.os }}-nimble-${{ hashFiles('*.nimble') }}
+          restore-keys: ${{ runner.os }}-nimble-
+
+      - name: Install dependencies
+        run: nimble install -y --depsOnly
+
+      - name: Compile bots (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          for src in sample_bots/*/*.nim; do
+            dir=$(dirname "$src")
+            name=$(basename "$dir")
+            mkdir -p "staging/$name"
+            nim c --threads:on --hints:off -o:"staging/$name/$name" "$src"
+            cp "$dir"/*.sh "$dir"/*.cmd "$dir"/*.json "staging/$name/"
+            chmod +x "staging/$name/$name" "staging/$name"/*.sh
+          done
+
+      - name: Compile bots (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem sample_bots -Directory | ForEach-Object {
+            $name = $_.Name
+            $src = "sample_bots/$name/$name.nim"
+            if (Test-Path $src) {
+              New-Item -ItemType Directory -Force -Path "staging/$name" | Out-Null
+              nim c --threads:on --hints:off "-o:staging/$name/$name.exe" $src
+              Copy-Item "sample_bots/$name/*.sh"   "staging/$name/" -ErrorAction SilentlyContinue
+              Copy-Item "sample_bots/$name/*.cmd"  "staging/$name/"
+              Copy-Item "sample_bots/$name/*.json" "staging/$name/"
+            }
+          }
+
+      - name: Copy MyFirstTeam (config-only)
+        shell: bash
+        run: |
+          mkdir -p staging/MyFirstTeam
+          cp sample_bots/MyFirstTeam/*.json staging/MyFirstTeam/
+
+      - name: Zip staging (Linux/macOS)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          cd staging && zip -r "../sample-bots-nim-${{ matrix.platform }}-${VERSION}.zip" .
+
+      - name: Zip staging (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME -replace '^v', ''
+          Compress-Archive -Path staging\* -DestinationPath "sample-bots-nim-${{ matrix.platform }}-${version}.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sample-bots-nim-${{ matrix.platform }}
+          path: sample-bots-nim-${{ matrix.platform }}-*.zip
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref }}
+          name: Release ${{ github.ref_name }}
+          body: |
+            ## Sample Bots — Nim
+
+            Native binaries for Linux, macOS, and Windows compiled from the Nim source.
+
+            **macOS users:** If the binary is quarantined by Gatekeeper, run:
+            ```
+            xattr -d com.apple.quarantine <binary>
+            ```
+            or right-click the binary → Open.
+          files: sample-bots-nim-*.zip
