@@ -4,14 +4,17 @@
 ## ---------------
 ## Main thread:  WebSocket receive loop.  Receives all server messages,
 ##               updates shared state, runs processTurn, then wakes bot thread.
-## Bot thread:   Wakes, dispatches events, runs user's `run()` / go() loop,
-##               sends intent JSON via gIntentChan.
+## Bot thread:   Persistent for the game lifetime. Loops: waits for start-round
+##               signal → dispatches events, runs user's `run()` / go() loop →
+##               signals round-done → waits again. Never exits until shutdown.
 ## Sender thread: Owns all WebSocket writes during gameplay — reads from
 ##               gIntentChan and calls ws.send.
 ##
-## Synchronisation uses two channels:
-##   tickChan     main → bot      (true = new tick ready; false = stop)
-##   intentChan   bot  → sender   (JSON string to send to server; "" = stop)
+## Synchronisation uses four channels:
+##   tickChan      main → bot     (true = new tick ready; false = stop this round)
+##   intentChan    bot  → sender  (JSON string to send to server; "" = stop)
+##   startRoundChan main → bot    (true = begin round; false = final shutdown)
+##   roundDoneChan  bot → main    (sent when round loop finishes, back to idle)
 
 import std/[json, locks, math, os, posix, syncio, tables]
 import ./constants
@@ -49,11 +52,14 @@ var gWs*: SyncWebSocket
 # Thread handles
 var gBotThread:    Thread[void]
 var gSenderThread: Thread[void]
+var gBotThreadStarted: bool        # true after first createThread; never join mid-game
 var gFirstTickOfRound: bool  # main-thread only, no lock needed
 
 # Channels  — must be opened before use
-var gTickChan:   Channel[bool]     # main → bot: tick arrived (false = stop)
-var gIntentChan: Channel[string]   # bot  → main: send this JSON
+var gTickChan:      Channel[bool]     # main → bot: tick arrived (false = stop round)
+var gIntentChan:    Channel[string]   # bot  → sender: send this JSON
+var gStartRoundChan: Channel[bool]   # main → bot: true = new round; false = shutdown
+var gRoundDoneChan:  Channel[bool]   # bot → main: round loop finished
 
 # Shared state protected by lock
 var gLock: Lock
@@ -221,21 +227,9 @@ var gIntentGunColor:      Color = Color(0)
 var gIntentAdjGunBody:    bool = false
 var gIntentAdjRadarBody:  bool = false
 var gIntentAdjRadarGun:   bool = false
-# ponytail: static buffers instead of strings/seq. go()'s stop path returns
-# before buildIntentJson clears these, so a round's last tick can leave heap
-# blocks owned by the exiting bot thread -> the fresh next-round thread
-# reallocs a dead allocator block (rawDealloc SIGSEGV). Static storage:
-# no heap block crosses threads.
-const INTENT_STDOUT_CAP = 4096
-const INTENT_STDERR_CAP = 4096
-const INTENT_MSG_CAP    = 16
-
-var gIntentTeamMessages: array[INTENT_MSG_CAP, TeamMessage]
-var gIntentTeamMsgsLen:  int
-var gIntentStdOut:       array[INTENT_STDOUT_CAP, char]
-var gIntentStdOutLen:    int
-var gIntentStdErr:       array[INTENT_STDERR_CAP, char]
-var gIntentStdErrLen:    int
+var gIntentTeamMessages: seq[TeamMessage]
+var gIntentStdOut:       string
+var gIntentStdErr:       string
 
 proc buildIntentJson*(): string =
   ## Serialise current intent to JSON for sending to server.
@@ -272,10 +266,9 @@ proc buildIntentJson*(): string =
     obj["tracksColor"] = %gIntentTracksColor.toHex
   if gIntentGunColor != Color(0):
     obj["gunColor"]    = %gIntentGunColor.toHex
-  if gIntentTeamMsgsLen > 0:
+  if gIntentTeamMessages.len > 0:
     var msgs = newJArray()
-    for i in 0 ..< gIntentTeamMsgsLen:
-      let m = gIntentTeamMessages[i]
+    for m in gIntentTeamMessages:
       var mo = newJObject()
       mo["message"]     = %m.message
       mo["messageType"] = %m.messageType
@@ -283,14 +276,13 @@ proc buildIntentJson*(): string =
         mo["receiverId"] = %m.receiverId
       msgs.add mo
     obj["teamMessages"] = msgs
-    for i in 0 ..< gIntentTeamMsgsLen: gIntentTeamMessages[i].reset
-    gIntentTeamMsgsLen = 0
-  if gIntentStdOutLen > 0:
-    obj["stdOut"] = %($gIntentStdOut[0 ..< gIntentStdOutLen])
-    gIntentStdOutLen = 0
-  if gIntentStdErrLen > 0:
-    obj["stdErr"] = %($gIntentStdErr[0 ..< gIntentStdErrLen])
-    gIntentStdErrLen = 0
+    gIntentTeamMessages.setLen(0)
+  if gIntentStdOut.len > 0:
+    obj["stdOut"] = %gIntentStdOut
+    gIntentStdOut.setLen(0)
+  if gIntentStdErr.len > 0:
+    obj["stdErr"] = %gIntentStdErr
+    gIntentStdErr.setLen(0)
   let svg = svgOutput()
   if svg.len > 0:
     obj["debugGraphics"] = %svg
@@ -348,27 +340,19 @@ proc setGunColor*(color: Color)    = gIntentGunColor    = color
 
 proc printToStdOut*(s: string) =
   ## Append s to this tick's stdOut payload (sent to server in BotIntent).
-  let n = min(s.len, INTENT_STDOUT_CAP - gIntentStdOutLen)
-  for i in 0 ..< n: gIntentStdOut[gIntentStdOutLen + i] = s[i]
-  inc gIntentStdOutLen, n
+  gIntentStdOut.add s
 
 proc printToStdErr*(s: string) =
   ## Append s to this tick's stdErr payload (sent to server in BotIntent).
-  let n = min(s.len, INTENT_STDERR_CAP - gIntentStdErrLen)
-  for i in 0 ..< n: gIntentStdErr[gIntentStdErrLen + i] = s[i]
-  inc gIntentStdErrLen, n
+  gIntentStdErr.add s
 
 proc broadcastTeamMessage*(message: string) =
   ## Send a message to all teammates this tick.
-  if gIntentTeamMsgsLen < INTENT_MSG_CAP:
-    gIntentTeamMessages[gIntentTeamMsgsLen] = TeamMessage(message: message, messageType: "String")
-    inc gIntentTeamMsgsLen
+  gIntentTeamMessages.add TeamMessage(message: message, messageType: "String")
 
 proc sendTeamMessage*(botId: int; message: string) =
   ## Send a message to a specific teammate this tick.
-  if gIntentTeamMsgsLen < INTENT_MSG_CAP:
-    gIntentTeamMessages[gIntentTeamMsgsLen] = TeamMessage(message: message, messageType: "String", receiverId: botId)
-    inc gIntentTeamMsgsLen
+  gIntentTeamMessages.add TeamMessage(message: message, messageType: "String", receiverId: botId)
 
 proc setAdjustGunForBodyTurn*(v: bool)   = gIntentAdjGunBody   = v
 proc setAdjustRadarForBodyTurn*(v: bool) = gIntentAdjRadarBody = v
@@ -601,7 +585,7 @@ proc dispatchPendingEvents*(bot: Bot) =
   gEventQueue.addCustomEvents(turnNumber)
   gEventQueue.removeOldEvents(turnNumber)
   gEventQueue.sortEvents()
-  while gEventQueue.eventsLen > 0:
+  while gEventQueue.events.len > 0:
     let e = gEventQueue.events[0]
     let p = gEventQueue.getPriority(e.kind)
     if p < gEventQueue.currentTopPriority:
@@ -839,41 +823,51 @@ proc clearEvents*() =
 # ---------------------------------------------------------------------------
 
 proc botThreadEntry() {.thread.} =
-  ## Runs `bot.run()` after waiting for the first tick.
+  ## Persistent bot thread. Loops over rounds until shutdown signal.
+  ## Each iteration: wait for start-round → run bot → signal round-done.
   {.cast(gcsafe).}:
-    # Wait for first tick signal from main thread
-    # (clearRemaining + processTurn already ran on main thread)
-    let firstTick = gTickChan.recv()
-    if not firstTick:
-      debugLog("[DBG] botThreadEntry: stop before first tick — exiting")
-      return
-    debugLog("[DBG] botThreadEntry: first tick" &
-      "  dir=" & $getDirection() &
-      "  gunDir=" & $getGunDirection() &
-      "  prevDir=" & $gPreviousDirection &
-      "  prevGunDir=" & $gPreviousGunDirection)
+    while true:
+      # Wait for main thread to signal a new round (true) or final shutdown (false)
+      let startRound = gStartRoundChan.recv()
+      if not startRound:
+        debugLog("[DBG] botThreadEntry: shutdown signal — exiting")
+        break
 
-    # Reset graphics + intent buffers on the thread that owns them. go()'s
-    # stop path (round end) returns before buildIntentJson/clearGraphics, so
-    # the previous round's thread can leave content behind; resetting here
-    # keeps it from leaking into this round's first intent.
-    clearGraphics()
-    gIntentStdOutLen = 0
-    gIntentStdErrLen = 0
-    for i in 0 ..< gIntentTeamMsgsLen: gIntentTeamMessages[i].reset
-    gIntentTeamMsgsLen = 0
+      # Reset graphics + intent buffers (same thread, no heap crossing).
+      clearGraphics()
+      gIntentStdOut.setLen(0)
+      gIntentStdErr.setLen(0)
+      gIntentTeamMessages.setLen(0)
 
-    dispatchPendingEvents(gBot)  # dispatch events embedded in the first tick
+      # Wait for first tick signal from main thread
+      # (clearRemaining + processTurn already ran on main thread)
+      let firstTick = gTickChan.recv()
+      if not firstTick:
+        debugLog("[DBG] botThreadEntry: stop before first tick — signalling done")
+        gRoundDoneChan.send(true)
+        continue
 
-    try:
-      gBot.run()
-    except Exception as e:
-      stderr.writeLine "[bot] run() exception: " & e.msg
+      debugLog("[DBG] botThreadEntry: first tick" &
+        "  dir=" & $getDirection() &
+        "  gunDir=" & $getGunDirection() &
+        "  prevDir=" & $gPreviousDirection &
+        "  prevGunDir=" & $gPreviousGunDirection)
 
-    # After run() exits, keep calling go() to skip turns until game ends
-    while isRunning():
-      try: go()
-      except: break
+      dispatchPendingEvents(gBot)  # dispatch events embedded in the first tick
+
+      try:
+        gBot.run()
+      except Exception as e:
+        stderr.writeLine "[bot] run() exception: " & e.msg
+
+      # After run() exits, keep calling go() to skip turns until round/game ends
+      while isRunning():
+        try: go()
+        except: break
+
+      # Signal main thread: round loop finished, back to idle
+      gRoundDoneChan.send(true)
+      debugLog("[DBG] botThreadEntry: round done, waiting for next round")
 
 # ---------------------------------------------------------------------------
 # Exported initialiser (called from start() in tankroyale_botapi.nim)
@@ -883,6 +877,8 @@ proc initGlobals*() =
   gTickChan.open(1)
   gIntentChan.open(1)
   gEventChan.open(8)
+  gStartRoundChan.open(1)
+  gRoundDoneChan.open(1)
   initLock(gLock)
   gEventQueue = initEventQueue()
   withLock(gLock):
@@ -1013,14 +1009,27 @@ proc drainTickChan*() =
 
 proc drainEventChan*() =
   ## Discard any unconsumed tick events left in gEventChan (round/game end).
-  ## Called after the bot thread joined — no more recv's possible, so this
-  ## prevents stale previous-round events leaking into the next round.
+  ## Called after waitForBotThread confirms the bot is idle — prevents stale
+  ## previous-round events leaking into the next round.
   while true:
     let (hasEvents, _) = gEventChan.tryRecv()
     if not hasEvents: break
 
 proc startBotThread*() =
-  createThread(gBotThread, botThreadEntry)
+  ## Create the persistent bot thread on first call; signal a new round on every call.
+  if not gBotThreadStarted:
+    createThread(gBotThread, botThreadEntry)
+    gBotThreadStarted = true
+  gStartRoundChan.send(true)
 
 proc waitForBotThread*() =
-  joinThread(gBotThread)
+  ## Block until the bot thread finishes its current round loop (is back to idle).
+  ## Does NOT join — the thread persists until shutdownBotThread().
+  discard gRoundDoneChan.recv()
+
+proc shutdownBotThread*() =
+  ## Send final shutdown to the bot thread and join it. Call once at process exit.
+  if gBotThreadStarted:
+    gStartRoundChan.send(false)
+    joinThread(gBotThread)
+    gBotThreadStarted = false

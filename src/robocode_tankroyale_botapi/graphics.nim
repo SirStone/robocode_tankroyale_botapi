@@ -9,15 +9,7 @@ import ./color
 # Module-level state (single bot per process)
 # ---------------------------------------------------------------------------
 
-# ponytail: static char array + length instead of a heap string. A fresh bot
-# thread runs each round; a module-level string grown by thread N and cleared
-# ("") by thread N+1 free/reallocs a dead thread's allocator block ->
-# rawDealloc SIGSEGV (same crash class as the event queue seq; gdb-confirmed
-# in drawText mid-campaign). Static storage: no heap block crosses threads.
-const SVG_BUFFER_CAP = 16384
-
-var gSvgLen:       int
-var gSvgBuffer:    array[SVG_BUFFER_CAP, char]
+var gSvgBuffer:   string
 var gStrokeColor: Color = WHITE
 var gFillColor:   Color = WHITE
 var gStrokeWidth: float = 1.0
@@ -25,12 +17,7 @@ var gFontFamily:  string = "Arial"  # never rebound at runtime (setFont unused)
 var gFontSize:    float = 12.0
 
 proc appendSvg(s: string) =
-  ## Append an SVG fragment, dropping anything past the static cap.
-  let room = SVG_BUFFER_CAP - gSvgLen
-  if room > 0:
-    let n = min(room, s.len)
-    for i in 0 ..< n: gSvgBuffer[gSvgLen + i] = s[i]
-    inc gSvgLen, n
+  gSvgBuffer.add s
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -42,12 +29,12 @@ proc svgAttrs(): string =
 
 proc svgOutput*(): string =
   ## Returns the SVG fragment for this tick, or "" if nothing was drawn.
-  if gSvgLen == 0: return ""
-  "<g>" & $gSvgBuffer[0 ..< gSvgLen] & "</g>"
+  if gSvgBuffer.len == 0: return ""
+  "<g>" & gSvgBuffer & "</g>"
 
 proc clearGraphics*() =
   ## Reset buffer and all style globals to defaults. Called after each tick.
-  gSvgLen      = 0
+  gSvgBuffer.setLen(0)
   gStrokeColor = WHITE
   gFillColor   = WHITE
   gStrokeWidth = 1.0

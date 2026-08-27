@@ -170,7 +170,7 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
       of "RoundStartedEvent":
         let e = node.to(RoundStartedEvent)
         debugLog("[NS-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
-        # Start (or restart) the bot thread each round
+        # Signal new round to persistent bot thread (creates it on first call).
         startRound()
         startBotThread()
         gBot.onRoundStarted(e)
@@ -183,11 +183,11 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
         debugLog("[RE-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
         signalStop()         # unblock bot thread blocked in go()
         debugLog("[WT-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
-        waitForBotThread()
+        waitForBotThread()   # wait for bot to finish round loop (back to idle)
         debugLog("[WT-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
         debugLog("[DR-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
-        drainIntentChan()    # drain AFTER thread joined — no more writes possible
+        drainIntentChan()    # drain while bot is idle — no more writes this round
         drainEventChan()     # drop any unconsumed tick events (stale into next round)
         debugLog("[DR-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
         debugLog("[ONRE-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
@@ -196,15 +196,19 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
       of "GameEndedEventForBot":
         setRunning(false)
         let e = node.to(GameEndedEventForBot)
+        signalStop()         # unblock bot thread if mid-round
+        waitForBotThread()   # wait for round loop to finish
+        drainTickChan()
         drainIntentChan()
+        drainEventChan()
         gBot.onGameEnded(e)
       of "GameAbortedEvent":
         setRunning(false)
         signalStop()         # unblock bot thread (game aborted mid-round)
-        waitForBotThread()
+        waitForBotThread()   # wait for round loop to finish
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
-        drainIntentChan()    # drain AFTER thread joined — no more writes possible
-        drainEventChan()     # drop any unconsumed tick events (stale into next round)
+        drainIntentChan()    # drain while bot is idle — no more writes this round
+        drainEventChan()     # drop any unconsumed tick events
         gBot.onGameAborted()
       of "SkippedTurnEvent":
         let e = node.to(SkippedTurnEvent)
@@ -214,16 +218,13 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
       else:
         discard  # unknown message type — ignore
     except Exception as e:
-      # A raised handler/callback (e.g. an OSError from sync training inside
-      # onRoundEnded) must not kill the receive loop — that is the silent
-      # corpse path (process lives, no intents ever again). Log and continue.
+      # A raised handler/callback must not kill the receive loop — that is the
+      # silent corpse path (process lives, no intents ever again). Log and continue.
       stderr.writeLine "[ws] handler error (" & msgType & "): " & e.msg
       debugLog("[WS-HANDLER-ERR] " & msgType & ": " & e.msg)
 
-  # Loop exited: server disconnected or ws error. Make sure the bot thread is
-  # stopped and joined so the process exits cleanly instead of hanging forever
-  # with a blocked bot (corpse). ponytail: signalStop + join; the bot's go()
-  # consumes the stop as a non-tick and exits via the isRunning() check.
+  # Loop exited: server disconnected or ws error. Stop the bot if still running,
+  # then join the persistent bot thread so the process exits cleanly.
   if isRunning():
     debugLog("[DBG] receive loop exited while running — stopping bot thread")
     setRunning(false)
@@ -232,6 +233,7 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
     drainTickChan()
     drainIntentChan()
     drainEventChan()
+  shutdownBotThread()  # final join of persistent thread
   gBot.onDisconnected(DisconnectedEvent(serverUrl: serverUrl))
 
 # ---------------------------------------------------------------------------

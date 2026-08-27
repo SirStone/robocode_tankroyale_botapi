@@ -9,3 +9,7 @@ skipDirs      = @["sample_bots"]
 # Dependencies
 requires "nim >= 2.0.0"
 requires "jsony >= 1.1.5"
+
+task test, "Run battle integration test":
+  exec "nimble build"
+  exec "tests/battle_runner/run_battle_test.sh"
