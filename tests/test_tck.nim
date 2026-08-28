@@ -18,14 +18,11 @@
 ##   progress (after a tick, instead of RoundEndedEventForBot), so it is
 ##   always placed as the LAST test in this file.
 ##
-## TR-API-TCK-013 NOTE:
-##   The bot's receive loop silently discards unknown message types
-##   (`else: discard` in runReceiveLoop).  onConnectionError is only triggered
-##   by socket-level recv exceptions, not protocol-level unknown types.
-##   TCK-013 is SKIPPED until the API is updated.
-##   Fix: add `else: gBot.onConnectionError(...)` in robocode_tankroyale_botapi.nim.
+## TR-API-TCK-013: unknown server message type fires onConnectionError.
+##   Fixed in robocode_tankroyale_botapi.nim: else branch in runReceiveLoop
+##   now calls gBot.onConnectionError instead of silently discarding.
 
-import std/[json, os, times]
+import std/[json, os, strutils, times]
 import ./mock_server
 import ../src/robocode_tankroyale_botapi
 
@@ -361,13 +358,20 @@ block:
   discard capRoundEnded.awaitChan()
   pass(name)
 
-# ---- TCK-013: SKIPPED — API gap --------------------------------------------
-# The bot's receive loop silently discards unknown message types (`else: discard`).
-# onConnectionError is only triggered by socket-level recv exceptions, not by
-# unknown protocol type strings.
-# Fix: add `else: gBot.onConnectionError(...)` in runReceiveLoop
-#      (robocode_tankroyale_botapi.nim, the `else` arm of the msgType case).
-echo "SKIP TCK-013: unknown-server-message-type → onConnectionError (API gap)"
+# ---- TCK-013: unknown server message type → onConnectionError --------------
+block:
+  let name = "TCK-013"
+  # Send an unrecognised message type between rounds.
+  # The receive loop must call onConnectionError (not silently discard).
+  srv.sendRaw("""{"type":"UnknownFutureServerMessage","data":"test"}""")
+  let errMsg = capConnError.awaitChan()
+  assertTrue(errMsg.contains("UnknownFutureServerMessage"), name,
+             "error must name the unknown type (got: " & errMsg & ")")
+  # negative: no spurious second error
+  sleep(80)
+  let (extra, _) = capConnError.tryRecv()
+  assertFalse(extra, name, "no spurious second onConnectionError (neg)")
+  pass(name)
 
 # ---- TCK-011: onGameEnded fires with numberOfRounds==10 --------------------
 # Must be LAST: GameEndedEventForBot terminates the receive loop.

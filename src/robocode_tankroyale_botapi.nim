@@ -229,7 +229,9 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
       of "BotListUpdate":
         updateBotNames(node)
       else:
-        discard  # unknown message type — ignore
+        let errMsg = "Unknown message type: " & msgType
+        stderr.writeLine "[ws] " & errMsg
+        gBot.onConnectionError(ConnectionErrorEvent(serverUrl: serverUrl, error: errMsg))
     except Exception as e:
       # A raised handler/callback must not kill the receive loop — that is the
       # silent corpse path (process lives, no intents ever again). Log and continue.
