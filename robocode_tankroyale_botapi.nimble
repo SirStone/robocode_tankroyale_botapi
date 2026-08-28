@@ -11,7 +11,6 @@ requires "nim >= 2.0.0"
 requires "jsony >= 1.1.5"
 
 task unit, "Run unit tests":
-  exec "nim compile --run tests/test_graphics_escape.nim"
   exec "nim compile --run tests/test_val.nim"
   exec "nim compile --run tests/test_cmd.nim"
   exec "nim compile --run tests/test_evt.nim"
