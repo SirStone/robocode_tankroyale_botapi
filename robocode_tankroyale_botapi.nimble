@@ -12,6 +12,7 @@ requires "jsony >= 1.1.5"
 
 task unit, "Run unit tests":
   exec "nim compile --run tests/test_graphics_escape.nim"
+  exec "nim compile --run tests/test_gfx.nim"
 
 task fetch_test_data, "Download shared JSON test definitions from upstream Tank Royale repo":
   let baseUrl = "https://raw.githubusercontent.com/robocode-dev/tank-royale/main/bot-api/tests/shared/"
