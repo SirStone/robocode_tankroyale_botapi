@@ -12,6 +12,7 @@ requires "jsony >= 1.1.5"
 
 task unit, "Run unit tests":
   exec "nim compile --run tests/test_graphics_escape.nim"
+  exec "nim compile --run tests/test_gfx.nim"
 
 task test, "Run all tests (unit + battle integration)":
   exec "nimble unit"
