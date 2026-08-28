@@ -1,0 +1,163 @@
+## TR-API-EVT Tier 1 tests — event criticality, priorities, queue behaviour.
+import std/unittest
+import ../src/robocode_tankroyale_botapi/event_queue
+import ../src/robocode_tankroyale_botapi/constants
+import ../src/robocode_tankroyale_botapi/schemas
+
+# helpers to build minimal BotEvent values for each kind
+proc mkDeath(turn: int): BotEvent =
+  BotEvent(kind: ekDeath, turnNumber: turn, death: BotDeathEvent())
+
+proc mkWonRound(turn: int): BotEvent =
+  BotEvent(kind: ekWonRound, turnNumber: turn, wonRound: WonRoundEvent())
+
+proc mkSkippedTurn(turn: int): BotEvent =
+  BotEvent(kind: ekSkippedTurn, turnNumber: turn, skippedTurn: SkippedTurnEvent())
+
+proc mkBotDeath(turn: int): BotEvent =
+  BotEvent(kind: ekBotDeath, turnNumber: turn, botDeath: BotDeathEvent())
+
+proc mkHitBot(turn: int): BotEvent =
+  BotEvent(kind: ekHitBot, turnNumber: turn, hitBot: BotHitBotEvent())
+
+proc mkHitWall(turn: int): BotEvent =
+  BotEvent(kind: ekHitWall, turnNumber: turn, hitWall: BotHitWallEvent())
+
+proc mkBulletFired(turn: int): BotEvent =
+  BotEvent(kind: ekBulletFired, turnNumber: turn, bulletFired: BulletFiredEvent())
+
+proc mkBulletHitBot(turn: int): BotEvent =
+  BotEvent(kind: ekBulletHitBot, turnNumber: turn, bulletHitBot: BulletHitBotEvent())
+
+proc mkBulletHitBullet(turn: int): BotEvent =
+  BotEvent(kind: ekBulletHitBullet, turnNumber: turn, bulletHitBullet: BulletHitBulletEvent())
+
+proc mkBulletHitWall(turn: int): BotEvent =
+  BotEvent(kind: ekBulletHitWall, turnNumber: turn, bulletHitWall: BulletHitWallEvent())
+
+proc mkHitByBullet(turn: int): BotEvent =
+  BotEvent(kind: ekHitByBullet, turnNumber: turn, hitByBullet: HitByBulletEvent())
+
+proc mkScannedBot(turn: int): BotEvent =
+  BotEvent(kind: ekScannedBot, turnNumber: turn, scannedBot: ScannedBotEvent())
+
+proc mkCustom(turn: int): BotEvent =
+  BotEvent(kind: ekCustom, turnNumber: turn,
+    condition: Condition(name: "test", test: proc(): bool = true))
+
+proc mkTeamMessage(turn: int): BotEvent =
+  BotEvent(kind: ekTeamMessage, turnNumber: turn, teamMessage: TeamMessageEvent())
+
+suite "TR-API-EVT-002: critical events":
+  test "DeathEvent isCritical":
+    check mkDeath(1).isCritical == true
+  test "WonRoundEvent isCritical":
+    check mkWonRound(1).isCritical == true
+  test "SkippedTurnEvent isCritical":
+    check mkSkippedTurn(1).isCritical == true
+
+suite "TR-API-EVT-003: non-critical events":
+  test "BotDeathEvent not critical":
+    check mkBotDeath(1).isCritical == false
+  test "BotHitBotEvent not critical":
+    check mkHitBot(1).isCritical == false
+  test "BotHitWallEvent not critical":
+    check mkHitWall(1).isCritical == false
+  test "BulletFiredEvent not critical":
+    check mkBulletFired(1).isCritical == false
+  test "BulletHitBotEvent not critical":
+    check mkBulletHitBot(1).isCritical == false
+  test "BulletHitBulletEvent not critical":
+    check mkBulletHitBullet(1).isCritical == false
+  test "BulletHitWallEvent not critical":
+    check mkBulletHitWall(1).isCritical == false
+  test "HitByBulletEvent not critical":
+    check mkHitByBullet(1).isCritical == false
+  test "ScannedBotEvent not critical":
+    check mkScannedBot(1).isCritical == false
+  test "CustomEvent not critical":
+    check mkCustom(1).isCritical == false
+  test "TeamMessageEvent not critical":
+    check mkTeamMessage(1).isCritical == false
+
+suite "TR-API-EVT-004: default event priorities":
+  test "WonRoundEvent = 150":
+    check priorityOf(ekWonRound) == PRIORITY_WON_ROUND
+    check PRIORITY_WON_ROUND == 150
+  test "SkippedTurnEvent = 140":
+    check priorityOf(ekSkippedTurn) == PRIORITY_SKIPPED_TURN
+    check PRIORITY_SKIPPED_TURN == 140
+  test "TickEvent = 130":
+    check priorityOf(ekTick) == PRIORITY_TICK
+    check PRIORITY_TICK == 130
+  test "CustomEvent = 120":
+    check priorityOf(ekCustom) == PRIORITY_CUSTOM
+    check PRIORITY_CUSTOM == 120
+  test "TeamMessageEvent = 110":
+    check priorityOf(ekTeamMessage) == PRIORITY_TEAM_MESSAGE
+    check PRIORITY_TEAM_MESSAGE == 110
+  test "BotDeathEvent = 100":
+    check priorityOf(ekBotDeath) == PRIORITY_BOT_DEATH
+    check PRIORITY_BOT_DEATH == 100
+  test "BulletHitWallEvent = 90":
+    check priorityOf(ekBulletHitWall) == PRIORITY_BULLET_HIT_WALL
+    check PRIORITY_BULLET_HIT_WALL == 90
+  test "BulletHitBulletEvent = 80":
+    check priorityOf(ekBulletHitBullet) == PRIORITY_BULLET_HIT_BULLET
+    check PRIORITY_BULLET_HIT_BULLET == 80
+  test "BulletHitBotEvent = 70":
+    check priorityOf(ekBulletHitBot) == PRIORITY_BULLET_HIT_BOT
+    check PRIORITY_BULLET_HIT_BOT == 70
+  test "BulletFiredEvent = 60":
+    check priorityOf(ekBulletFired) == PRIORITY_BULLET_FIRED
+    check PRIORITY_BULLET_FIRED == 60
+  test "HitByBulletEvent = 50":
+    check priorityOf(ekHitByBullet) == PRIORITY_HIT_BY_BULLET
+    check PRIORITY_HIT_BY_BULLET == 50
+  test "HitWallEvent = 40":
+    check priorityOf(ekHitWall) == PRIORITY_HIT_WALL
+    check PRIORITY_HIT_WALL == 40
+  test "HitBotEvent = 30":
+    check priorityOf(ekHitBot) == PRIORITY_HIT_BOT
+    check PRIORITY_HIT_BOT == 30
+  test "ScannedBotEvent = 20":
+    check priorityOf(ekScannedBot) == PRIORITY_SCANNED_BOT
+    check PRIORITY_SCANNED_BOT == 20
+  test "DeathEvent = 10":
+    check priorityOf(ekDeath) == PRIORITY_DEATH
+    check PRIORITY_DEATH == 10
+
+suite "TR-API-EVT-005: EventQueue priority ordering":
+  test "critical before non-critical, higher priority critical first":
+    var eq = initEventQueue()
+    eq.addEvent mkDeath(1)       # critical, priority 10
+    eq.addEvent mkWonRound(1)    # critical, priority 150
+    eq.addEvent mkScannedBot(1)  # non-critical, priority 20
+    eq.sortEvents()
+    let evts = eq.getEvents()
+    check evts.len == 3
+    check evts[0].kind == ekWonRound   # highest priority critical
+    check evts[1].kind == ekDeath      # lower priority critical
+    check evts[2].kind == ekScannedBot # non-critical last
+
+suite "TR-API-EVT-006: EventQueue age culling":
+  test "non-critical events older than MAX_EVENTS_AGE turns are culled; critical kept":
+    # MAX_EVENTS_AGE = 2; at turn 10: cull if turnNumber < 10-2 = 8
+    var eq = initEventQueue()
+    eq.addEvent mkScannedBot(7)  # non-critical, age = 3 → culled
+    eq.addEvent mkScannedBot(8)  # non-critical, age = 2 → kept
+    eq.addEvent mkWonRound(7)    # critical → always kept
+    eq.removeOldEvents(10)
+    eq.sortEvents()
+    let evts = eq.getEvents()
+    check evts.len == 2
+    check evts[0].kind == ekWonRound   # critical first
+    check evts[1].kind == ekScannedBot # the surviving non-critical
+
+suite "TR-API-EVT-007: EventQueue size cap":
+  test "addEvent silently discards events beyond MAX_QUEUE_SIZE (256)":
+    var eq = initEventQueue()
+    for i in 0 ..< 266:
+      eq.addEvent mkSkippedTurn(0)
+    check eq.getEvents().len == MAX_QUEUE_SIZE
+    check MAX_QUEUE_SIZE == 256
