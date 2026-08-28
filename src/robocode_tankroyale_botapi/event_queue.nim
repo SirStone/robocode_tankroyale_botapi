@@ -85,7 +85,8 @@ proc setPriority*(eq: var EventQueue; kind: EventKind; p: int) =
   eq.priorities[kind] = p
 
 proc addEvent*(eq: var EventQueue; e: BotEvent) =
-  eq.events.add e
+  if eq.events.len < MAX_QUEUE_SIZE:
+    eq.events.add e
 
 proc clear*(eq: var EventQueue) =
   eq.events.setLen(0)
