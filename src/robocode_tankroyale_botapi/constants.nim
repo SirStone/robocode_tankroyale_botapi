@@ -42,3 +42,17 @@ const
 
   BOT_RADIUS*         = 18.0
   RADAR_RADIUS*       = 1200.0
+
+  # Game physics
+  INACTIVITY_ZAP*     = 0.1
+  RAM_DAMAGE*         = 0.6
+  STARTING_GUN_HEAT*  = 3.0
+
+  # Game types
+  CLASSIC*   = "classic"
+  MELEE*     = "melee"
+  ONE_VS_ONE* = "1v1"
+
+  # Team messaging
+  TEAM_MESSAGE_MAX_SIZE*              = 32768
+  MAX_NUMBER_OF_TEAM_MESSAGES_PER_TURN* = 10

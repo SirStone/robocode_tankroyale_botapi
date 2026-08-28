@@ -3,6 +3,8 @@
 import std/[os, json, strutils, sequtils]
 import ./schemas
 
+const MAX_NAME_LEN* = 63  ## Maximum characters allowed in BotInfo.name
+
 type
   BotInfo* = object
     name*:           string
@@ -16,6 +18,29 @@ type
     programmingLang*: string
     initialPosition*: InitialPosition
     isDroid*:         bool
+
+proc newBotInfo*(name: string; version: string; authors: seq[string];
+                 description = ""; homepage = "";
+                 countryCodes: seq[string] = @[];
+                 gameTypes: seq[string] = @[];
+                 platform = ""; programmingLang = "";
+                 isDroid = false): BotInfo =
+  ## Validated constructor: trims all string fields, uppercases country codes,
+  ## and raises ValueError if name exceeds MAX_NAME_LEN characters.
+  let n = name.strip
+  if n.len > MAX_NAME_LEN:
+    raise newException(ValueError,
+      "BotInfo name exceeds maximum length of " & $MAX_NAME_LEN & " characters")
+  result.name    = n
+  result.version = version.strip
+  result.authors = authors.mapIt(it.strip)
+  result.description   = description.strip
+  result.homepage      = homepage.strip
+  result.countryCodes  = countryCodes.mapIt(it.strip.toUpperAscii)
+  result.gameTypes     = gameTypes
+  result.platform      = platform
+  result.programmingLang = programmingLang
+  result.isDroid       = isDroid
 
 proc botInfoFromJson*(path: string): BotInfo =
   let data = parseJson(readFile(path))
