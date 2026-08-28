@@ -3,9 +3,9 @@
 ## No server required — pure math and initial-state assertions.
 
 import std/[math, os, strutils]
-import ../src/robocode_tankroyale_botapi/utils
-import ../src/robocode_tankroyale_botapi/constants
-import ../src/robocode_tankroyale_botapi/bot_info
+import ../../src/robocode_tankroyale_botapi/utils
+import ../../src/robocode_tankroyale_botapi/constants
+import ../../src/robocode_tankroyale_botapi/bot_info
 
 # ── helpers ──────────────────────────────────────────────────────────────────
 

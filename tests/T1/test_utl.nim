@@ -4,9 +4,9 @@
 ##   TR-API-UTL-003: Country code validation and local detection
 
 import std/[json, os]
-import ../src/robocode_tankroyale_botapi/color
-import ../src/robocode_tankroyale_botapi/json_parse
-import ../src/robocode_tankroyale_botapi/bot_info
+import ../../src/robocode_tankroyale_botapi/color
+import ../../src/robocode_tankroyale_botapi/json_parse
+import ../../src/robocode_tankroyale_botapi/bot_info
 
 # ---------------------------------------------------------------------------
 # TR-API-UTL-001: Color hex round-trip and string parsing
@@ -118,7 +118,7 @@ echo "PASS: TR-API-UTL-002 JSON"
 
 block countryCodesFromJson:
   # Use an existing sample bot JSON that has countryCodes
-  const sampleJson = currentSourcePath.parentDir / "../sample_bots/MyFirstBot/MyFirstBot.json"
+  const sampleJson = currentSourcePath.parentDir / "../../sample_bots/MyFirstBot/MyFirstBot.json"
   let info = botInfoFromJson(sampleJson)
   assert "IT" in info.countryCodes, "expected IT in countryCodes"
 

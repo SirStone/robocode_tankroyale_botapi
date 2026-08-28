@@ -3,9 +3,9 @@
 ## TR-API-CMD-002: setFire returns false when gunHeat > 0, energy < firepower, or invalid fp.
 
 import std/[json, math]
-import ../src/robocode_tankroyale_botapi/bot
-import ../src/robocode_tankroyale_botapi/constants
-import ../src/robocode_tankroyale_botapi/schemas
+import ../../src/robocode_tankroyale_botapi/bot
+import ../../src/robocode_tankroyale_botapi/constants
+import ../../src/robocode_tankroyale_botapi/schemas
 
 # ---------------------------------------------------------------------------
 # Helpers

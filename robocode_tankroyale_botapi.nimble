@@ -11,14 +11,14 @@ requires "nim >= 2.0.0"
 requires "jsony >= 1.1.5"
 
 task unit, "Run unit tests":
-  exec "nim compile --run tests/test_val.nim"
-  exec "nim compile --run tests/test_cmd.nim"
-  exec "nim compile --run tests/test_evt.nim"
-  exec "nim compile --run tests/test_mdl.nim"
-  exec "nim compile --run tests/test_bot.nim"
-  exec "nim compile --run tests/test_utl.nim"
-  exec "nim compile --run tests/test_gfx.nim"
-  exec "nim compile --run tests/test_tck.nim"
+  exec "nim compile --run tests/T1/test_val.nim"
+  exec "nim compile --run tests/T1/test_cmd.nim"
+  exec "nim compile --run tests/T1/test_evt.nim"
+  exec "nim compile --run tests/T1/test_mdl.nim"
+  exec "nim compile --run tests/T1/test_bot.nim"
+  exec "nim compile --run tests/T1/test_utl.nim"
+  exec "nim compile --run tests/T1/test_gfx.nim"
+  exec "nim compile --run tests/T2/test_tck.nim"
 
 task fetch_test_data, "Download shared JSON test definitions from upstream Tank Royale repo":
   let baseUrl = "https://raw.githubusercontent.com/robocode-dev/tank-royale/main/bot-api/tests/shared/"

@@ -5,8 +5,8 @@
 import std/unittest
 import std/xmlparser
 import std/strutils
-import ../src/robocode_tankroyale_botapi/color
-import ../src/robocode_tankroyale_botapi/graphics
+import ../../src/robocode_tankroyale_botapi/color
+import ../../src/robocode_tankroyale_botapi/graphics
 
 # ---------------------------------------------------------------------------
 # GFX-001: Color RGBA construction and named constants

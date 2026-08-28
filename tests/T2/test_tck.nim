@@ -24,7 +24,7 @@
 
 import std/[json, os, strutils, times]
 import ./mock_server
-import ../src/robocode_tankroyale_botapi
+import ../../src/robocode_tankroyale_botapi
 
 # ---------------------------------------------------------------------------
 # Test-side capture channels  (opened once for the lifetime of the process)

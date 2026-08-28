@@ -62,5 +62,8 @@ sample_bots/*/*
 # Compiled test binaries (extensionless on Linux)
 tests/test_*
 tests/mock_server
+tests/T1/test_[a-z]*[!.nim]
+tests/T2/test_[a-z]*[!.nim]
+tests/T2/mock_server
 
 .claude/worktrees/

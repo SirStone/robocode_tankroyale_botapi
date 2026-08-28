@@ -1,9 +1,9 @@
 ## Tier-1 validation tests (TR-API-VAL-001..005)
 ## Driven by tests/shared/botinfo-validation.json and constants.json.
 import std/[unittest, strutils]
-import ../src/robocode_tankroyale_botapi/bot_info
-import ../src/robocode_tankroyale_botapi/constants
-import ../src/robocode_tankroyale_botapi/schemas
+import ../../src/robocode_tankroyale_botapi/bot_info
+import ../../src/robocode_tankroyale_botapi/constants
+import ../../src/robocode_tankroyale_botapi/schemas
 
 # ---------------------------------------------------------------------------
 # TR-API-VAL-001  BotInfo required fields (positive)

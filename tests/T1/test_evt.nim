@@ -1,8 +1,8 @@
 ## TR-API-EVT Tier 1 tests — event criticality, priorities, queue behaviour.
 import std/unittest
-import ../src/robocode_tankroyale_botapi/event_queue
-import ../src/robocode_tankroyale_botapi/constants
-import ../src/robocode_tankroyale_botapi/schemas
+import ../../src/robocode_tankroyale_botapi/event_queue
+import ../../src/robocode_tankroyale_botapi/constants
+import ../../src/robocode_tankroyale_botapi/schemas
 
 # helpers to build minimal BotEvent values for each kind
 proc mkDeath(turn: int): BotEvent =

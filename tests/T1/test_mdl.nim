@@ -1,7 +1,7 @@
 ## TR-API-MDL Tier 1+2: Data model tests.
 import std/unittest
-import ../src/robocode_tankroyale_botapi/utils
-import ../src/robocode_tankroyale_botapi/schemas
+import ../../src/robocode_tankroyale_botapi/utils
+import ../../src/robocode_tankroyale_botapi/schemas
 
 # TR-API-MDL-001: calcBulletSpeed — positive cases (from bullet-state.json)
 
