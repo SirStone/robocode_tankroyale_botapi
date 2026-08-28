@@ -289,6 +289,7 @@ proc clientLoop(ctx: ptr MockCtx; sock: AsyncSocket) {.async.} =
       let (hasOut, outMsg) = ctx.outboundChan.tryRecv()
       if not hasOut: break
       if outMsg.len == 0:
+        sock.close()  # force EOF on bot side so its recv fails immediately
         return  # stop sentinel
       await sock.sendFrame(outMsg)
 
