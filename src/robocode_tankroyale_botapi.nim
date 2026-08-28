@@ -1,15 +1,68 @@
 ## Main entry-point module for Robocode Tank Royale Nim bot API.
 ##
-## Usage:
-##   import robocode_tankroyale_botapi
+## This module is the primary interface for writing Robocode Tank Royale bots in Nim.
+## It re-exports all public symbols from the submodules, so you only need to import
+## this one module in your bot code.
 ##
-##   type MyBot = ref object of Bot
-##   method run(bot: MyBot) =
-##     forward(100)
-##     ...
+## ## Quick Start
 ##
-##   var bot = MyBot()
-##   start(bot, "MyBot.json")
+## 1. Create a bot type that inherits from `Bot`:
+##
+##    ```nim
+##    import robocode_tankroyale_botapi
+##    
+##    type MyBot = ref object of Bot
+##    method run(bot: MyBot) =
+##      # Your bot logic here
+##      forward(100)
+##      turnLeft(90)
+##      fire(2.0)
+##    ```
+##
+## 2. Create an instance and start it with your bot's JSON configuration file:
+##
+##    ```nim
+##    var bot = MyBot()
+##    start(bot, "MyBot.json")
+##    ```
+##
+## The JSON file contains your bot's identity (name, version, authors, etc.) and
+## optional settings like initial position and game types. See `BotInfo` for details.
+##
+## ## Architecture Overview
+##
+## The API uses a three-thread architecture:
+##
+## - **Main thread**: Runs the WebSocket receive loop, processes incoming server
+##   messages, updates shared state, and wakes the bot thread each tick.
+## - **Bot thread**: Runs your `run()` method and event handlers. It blocks on
+##   `go()` waiting for the next tick.
+## - **Sender thread**: Owns all WebSocket writes, sending your bot's intents to
+##   the server.
+##
+## Communication between threads happens through channels, avoiding shared mutable
+## state where possible.
+##
+## ## Exported Modules
+##
+## This module re-exports the following submodules:
+##
+## - `constants` -- Game physics constants and event priorities
+## - `color` -- Color type with 141 named colors and hex parsing
+## - `schemas` -- Protocol message types (events, game setup, etc.)
+## - `utils` -- Math and geometry helpers (bearing, distance, angles)
+## - `bot_info` -- Bot identity loading from JSON or environment
+## - `ws_client` -- Low-level WebSocket client (internal)
+## - `json_parse` -- Safe JSON-to-type parsing (internal)
+## - `event_queue` -- Priority-based event dispatch (internal)
+## - `bot` -- Core bot implementation, movement, and event handlers
+## - `graphics` -- SVG debug graphics for visualization
+##
+## ## See Also
+##
+## - `Bot` -- Base class for your bot implementation
+## - `start` -- Connect to server and begin the game loop
+## - `BotInfo` -- Bot identity configuration
 
 import std/[net, os, json]
 
@@ -139,10 +192,40 @@ proc handleTick(node: JsonNode) =
   processTickOnMainThread()         # motion tracking (while bot is blocked)
   wakeBotThread()                   # wake bot — state + motion ready
 
-const WS_MAX_CONSECUTIVE_TIMEOUTS = 5  ## Disconnect after this many consecutive recv timeouts.
+const WS_MAX_CONSECUTIVE_TIMEOUTS = 5
+  ## Maximum consecutive WebSocket receive timeouts before disconnecting.
+  ## If the server goes silent for this many consecutive reads, the connection
+  ## is considered dead and the bot will shut down.
 
-proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl: string) =
-  ## Main WebSocket receive loop. Blocks until disconnected.
+proc runReceiveLoop*(
+  ws: SyncWebSocket;
+  info: BotInfo;
+  secret: string;
+  serverUrl: string
+) =
+  ## Main WebSocket receive loop.
+  ##
+  ## This procedure runs on the main thread and handles all incoming messages
+  ## from the Tank Royale server. It:
+  ##
+  ## - Receives WebSocket frames
+  ## - Parses JSON messages
+  ## - Dispatches messages to appropriate handlers (handshake, game start, ticks,
+  ##   round end, game end, etc.)
+  ## - Updates shared game state
+  ## - Signals the bot thread when a new tick arrives
+  ##
+  ## The loop runs until the connection is closed or too many consecutive
+  ## timeouts occur (see `WS_MAX_CONSECUTIVE_TIMEOUTS`).
+  ##
+  ## **Note**: This is an internal procedure. You typically don't call it
+  ## directly; use `start()` instead.
+  ##
+  ## Parameters:
+  ## - `ws`: The connected WebSocket
+  ## - `info`: Your bot's identity information
+  ## - `secret`: Optional server secret for authentication
+  ## - `serverUrl`: The server URL (used for error reporting)
   var consecutiveTimeouts = 0
   while ws.connected:
     var msg: string
@@ -255,9 +338,51 @@ proc runReceiveLoop*(ws: SyncWebSocket; info: BotInfo; secret: string; serverUrl
 # Public start() procedure
 # ---------------------------------------------------------------------------
 
-proc start*(bot: Bot; jsonFile: string = "") =
-  ## Connect to the server and start the bot.
-  ## jsonFile: path to bot JSON profile (optional; falls back to env vars).
+proc start*(
+  bot: Bot;
+  jsonFile: string = ""
+) =
+  ## Connect to the Tank Royale server and start the bot's game loop.
+  ##
+  ## This is the main entry point for running your bot. It:
+  ##
+  ## 1. Loads your bot's identity from `jsonFile` (or environment variables)
+  ## 2. Connects to the WebSocket server (default: `ws://localhost:7654`)
+  ## 3. Performs the handshake with the server
+  ## 4. Starts the three-thread architecture (receive, bot, sender)
+  ## 5. Blocks until the game ends or connection is lost
+  ##
+  ## The procedure never returns normally -- it runs until the game ends,
+  ## the server disconnects, or a fatal error occurs.
+  ##
+  ## ## Configuration
+  ##
+  ## You can configure the connection via environment variables:
+  ##
+  ## - `SERVER_URL` -- WebSocket server URL (default: `ws://localhost:7654`)
+  ## - `SERVER_SECRET` -- Optional secret for authenticated servers
+  ##
+  ## ## Parameters
+  ##
+  ## - `bot`: An instance of your bot type (must inherit from `Bot`)
+  ## - `jsonFile`: Path to your bot's JSON configuration file. If empty or
+  ##   not found, falls back to environment variables (`BOT_NAME`, `BOT_VERSION`,
+  ##   `BOT_AUTHORS`, etc.). See `loadBotInfo` for details.
+  ##
+  ## ## Example
+  ##
+  ## ```nim
+  ## import robocode_tankroyale_botapi
+  ## 
+  ## type MyBot = ref object of Bot
+  ## method run(bot: MyBot) =
+  ##   while true:
+  ##     forward(100)
+  ##     turnLeft(90)
+  ## 
+  ## var bot = MyBot()
+  ## start(bot, "MyBot.json")
+  ## ```
   gBot = bot
   gBotInfo = loadBotInfo(jsonFile)
   initGlobals()

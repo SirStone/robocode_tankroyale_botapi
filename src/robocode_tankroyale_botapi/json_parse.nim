@@ -1,7 +1,17 @@
-## Safe JSON-to-type parsing for Robocode Tank Royale protocol.
+## Safe JSON parser for Tank Royale WebSocket protocol messages.
 ##
-## Uses the {} accessor (returns nil on missing keys) and typed getters with
-## default values so that optional schema fields never raise KeyError.
+## Converts raw JSON messages received over WebSocket into strongly-typed Nim
+## object structures (`BotState`, `BulletState`, `BotEvent`).
+##
+## ## Safe Parsing Strategy
+##
+## Standard JSON parsing in Nim raises exceptions (like `KeyError`) if a field
+## is missing. The Tank Royale server often omits optional fields (such as bot colors
+## or optional event attributes). This module uses Nim's `{}` accessor macro,
+## which returns `nil` for missing keys instead of raising an error, coupled with
+## safe default getters (`getInt(default)`, `getFloat(default)`, `getStr(default)`).
+##
+## This ensures the bot client never crashes due to unexpected or missing JSON fields.
 
 import std/json
 import ./schemas
@@ -9,7 +19,8 @@ import ./color
 import ./event_queue
 
 proc parseBulletState*(node: JsonNode): BulletState =
-  ## Parse a BulletState from JSON; missing optional fields default to zero.
+  ## Safely parse a `BulletState` object from a JSON node.
+  ## Missing fields fall back to safe zero/empty defaults.
   if node.isNil: return
   result.bulletId  = node{"bulletId"}.getInt(0)
   result.ownerId   = node{"ownerId"}.getInt(0)
@@ -21,7 +32,10 @@ proc parseBulletState*(node: JsonNode): BulletState =
   result.color = if bulletColorStr.len > 0: fromHex(bulletColorStr) else: Color(0)
 
 proc parseBotState*(node: JsonNode): BotState =
-  ## Parse a BotState from JSON; optional colour/flag fields default to empty/false.
+  ## Safely parse a `BotState` object from a JSON node.
+  ##
+  ## Reads bot position, energy, gun/radar headings, velocity, heat, and colors.
+  ## Optional color strings are parsed into `Color` values.
   if node.isNil: return
   result.isDroid        = node{"isDroid"}.getBool(false)
   result.energy         = node{"energy"}.getFloat(0.0)
@@ -49,7 +63,14 @@ proc parseBotState*(node: JsonNode): BotState =
   parseColor(gunColor)
 
 proc parseBotEvent*(node: JsonNode; myId: int): BotEvent =
-  ## Parse a JSON event node into a typed BotEvent.
+  ## Parse a raw JSON event object into a typed `BotEvent` variant.
+  ##
+  ## Uses `myId` to differentiate between self-events and enemy events.
+  ## For example:
+  ## - `BotDeathEvent` with `victimId == myId` becomes `ekDeath` (critical),
+  ##   otherwise `ekBotDeath`.
+  ## - `BulletHitBotEvent` with `victimId == myId` becomes `ekHitByBullet`,
+  ##   otherwise `ekBulletHitBot`.
   let typeStr = node{"type"}.getStr
   let tn = node{"turnNumber"}.getInt(0)
   case typeStr

@@ -1,17 +1,28 @@
 ## Minimal synchronous WebSocket client for Robocode Tank Royale bot API.
-## Uses std/net (blocking TCP) so the bot thread model stays simple.
-## Implements only what is needed: connect, send text frame, receive text frame.
+##
+## This is an internal module implementing a light-weight synchronous (blocking)
+## WebSocket client protocol over standard TCP sockets (`std/net`).
+##
+## ## Features
+##
+## - Simple HTTP 101 WebSocket Upgrade handshake
+## - Client-side masking (RFC 6455 compliant)
+## - Text frame encoding and decoding
+## - Automatic Ping/Pong frame handling
+## - Configurable per-read socket timeout (`WS_RECV_TIMEOUT_MS`)
 
 import std/[net, base64, random, strutils, uri]
 
-const WS_RECV_TIMEOUT_MS* = 30_000  ## Per-read timeout; raise TimeoutError on breach.
+const WS_RECV_TIMEOUT_MS* = 30_000  ## Socket read timeout in milliseconds (default 30s).
 
 type
   SyncWebSocket* = ref object
-    socket*:    Socket
-    connected*: bool
+    ## Encapsulates a synchronous WebSocket connection.
+    socket*:    Socket   ## Underlying OS socket handle
+    connected*: bool     ## Connection status flag
 
   WebSocketError* = object of IOError
+    ## Raised when a WebSocket protocol or network error occurs.
 
 # ---- WebSocket frame helpers -------------------------------------------------
 

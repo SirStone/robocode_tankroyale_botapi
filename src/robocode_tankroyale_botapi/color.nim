@@ -1,6 +1,110 @@
 ## Color type for Robocode Tank Royale — RGBA packed as uint32 (R<<24|G<<16|B<<8|A),
 ## matching the layout of the Java Color class.
-
+##
+## The `Color` type is a distinct `uint32` that stores RGBA values in a single
+## 32-bit integer. This is the same format used by the Java `Color` class and
+## the Tank Royale protocol.
+##
+## ## Creating Colors
+##
+## You can create colors in several ways:
+##
+## ```nim
+## # From RGB values (0-255), alpha defaults to 255 (opaque)
+## let red = fromRgb(255, 0, 0)
+## 
+## # From RGBA values (0-255)
+## let semiTransparentBlue = fromRgba(0, 0, 255, 128)
+## 
+## # From hex string ("#RRGGBB" or "#RRGGBBAA")
+## let green = fromHex("#00FF00")
+## let transparent = fromHex("#00FF0080")
+## 
+## # Using named color constants (141 standard colors)
+## let gold = GOLD
+## let cyan = CYAN
+## ```
+##
+## ## Using Colors in Your Bot
+##
+## Colors are used for bot appearance and debug graphics:
+##
+## ```nim
+## # Set bot body colors (call in run() or onGameStarted)
+## setBodyColor(RED)
+## setTurretColor(YELLOW)
+## setRadarColor(GREEN)
+## 
+## # Use in debug graphics
+## setStrokeColor(WHITE)
+## setFillColor(RED)
+## drawCircle(getX(), getY(), 50)
+## ```
+##
+## ## Color Components
+##
+## Access individual components:
+##
+## ```nim
+## let c = fromRgb(255, 128, 64)
+## echo c.r  # 255
+## echo c.g  # 128
+## echo c.b  # 64
+## echo c.a  # 255 (default opaque)
+## ```
+##
+## ## Hex Output
+##
+## Convert to hex string for sending to server:
+##
+## ```nim
+## let c = RED
+## echo c.toHex  # "#FF0000"
+## echo $c       # same, uses stringify operator
+## ```
+##
+## ## Named Color Constants
+##
+## All 141 standard Java/HTML color names are available as constants:
+## `ALICE_BLUE`, `ANTIQUE_WHITE`, `AQUA`, `AQUAMARINE`, `AZURE`,
+## `BEIGE`, `BISQUE`, `BLACK`, `BLANCHED_ALMOND`, `BLUE`, `BLUE_VIOLET`,
+## `BROWN`, `BURLY_WOOD`, `CADET_BLUE`, `CHARTREUSE`, `CHOCOLATE`,
+## `CORAL`, `CORNFLOWER_BLUE`, `CORNSILK`, `CRIMSON`, `CYAN`,
+## `DARK_BLUE`, `DARK_CYAN`, `DARK_GOLDENROD`, `DARK_GRAY`, `DARK_GREEN`,
+## `DARK_KHAKI`, `DARK_MAGENTA`, `DARK_OLIVE_GREEN`, `DARK_ORANGE`,
+## `DARK_ORCHID`, `DARK_RED`, `DARK_SALMON`, `DARK_SEA_GREEN`,
+## `DARK_SLATE_BLUE`, `DARK_SLATE_GRAY`, `DARK_TURQUOISE`, `DARK_VIOLET`,
+## `DEEP_PINK`, `DEEP_SKY_BLUE`, `DIM_GRAY`, `DODGER_BLUE`, `FIREBRICK`,
+## `FLORAL_WHITE`, `FOREST_GREEN`, `FUCHSIA`, `GAINSBORO`, `GHOST_WHITE`,
+## `GOLD`, `GOLDENROD`, `GRAY`, `GREEN`, `GREEN_YELLOW`, `HONEYDEW`,
+## `HOT_PINK`, `INDIAN_RED`, `INDIGO`, `IVORY`, `KHAKI`, `LAVENDER`,
+## `LAVENDER_BLUSH`, `LAWN_GREEN`, `LEMON_CHIFFON`, `LIGHT_BLUE`,
+## `LIGHT_CORAL`, `LIGHT_CYAN`, `LIGHT_GOLDENROD_YELLOW`, `LIGHT_GRAY`,
+## `LIGHT_GREEN`, `LIGHT_PINK`, `LIGHT_SALMON`, `LIGHT_SEA_GREEN`,
+## `LIGHT_SKY_BLUE`, `LIGHT_SLATE_GRAY`, `LIGHT_STEEL_BLUE`, `LIGHT_YELLOW`,
+## `LIME`, `LIME_GREEN`, `LINEN`, `MAGENTA`, `MAROUN`, `MEDIUM_AQUAMARINE`,
+## `MEDIUM_BLUE`, `MEDIUM_ORCHID`, `MEDIUM_PURPLE`, `MEDIUM_SEA_GREEN`,
+## `MEDIUM_SLATE_BLUE`, `MEDIUM_SPRING_GREEN`, `MEDIUM_TURQUOISE`,
+## `MEDIUM_VIOLET_RED`, `MIDNIGHT_BLUE`, `MINT_CREAM`, `MISTY_ROSE`,
+## `MOCCASIN`, `NAVAJO_WHITE`, `NAVY`, `OLD_LACE`, `OLIVE`, `OLIVE_DRAB`,
+## `ORANGE`, `ORANGE_RED`, `ORCHID`, `PALE_GOLDENROD`, `PALE_GREEN`,
+## `PALE_TURQUOISE`, `PALE_VIOLET_RED`, `PAPAYA_WHIP`, `PEACH_PUFF`,
+## `PERU`, `PINK`, `PLUM`, `POWDER_BLUE`, `PURPLE`, `RED`, `ROSY_BROWN`,
+## `ROYAL_BLUE`, `SADDLE_BROWN`, `SALMON`, `SANDY_BROWN`, `SEA_GREEN`,
+## `SEA_SHELL`, `SIENNA`, `SILVER`, `SKY_BLUE`, `SLATE_BLUE`, `SLATE_GRAY`,
+## `SNOW`, `SPRING_GREEN`, `STEEL_BLUE`, `TAN`, `TEAL`, `THISTLE`,
+## `TOMATO`, `TURQUOISE`, `VIOLET`, `WHEAT`, `WHITE`, `WHITE_SMOKE`,
+## `YELLOW`, `YELLOW_GREEN`, and `TRANSPARENT`.
+##
+## ## Implicit Conversion
+##
+## Strings are implicitly converted to `Color` via `fromHex`:
+##
+## ```nim
+## setBodyColor("#FF0000")  # Works! Same as setBodyColor(fromHex("#FF0000"))
+## setBodyColor("RED")      # Also works for named colors
+## ```
+##
 import std/strutils
 
 type Color* = distinct uint32
@@ -10,13 +114,42 @@ type Color* = distinct uint32
 # ---------------------------------------------------------------------------
 
 proc fromRgb*(r, g, b: uint8): Color {.inline.} =
+  ## Create a color from RGB components (alpha = 255, fully opaque).
+  ##
+  ## Parameters:
+  ## - `r`: Red component (0-255)
+  ## - `g`: Green component (0-255)
+  ## - `b`: Blue component (0-255)
+  ##
+  ## Returns: Opaque color with the given RGB values
   Color((r.uint32 shl 24) or (g.uint32 shl 16) or (b.uint32 shl 8) or 0xFF)
 
 proc fromRgba*(r, g, b, a: uint8): Color {.inline.} =
+  ## Create a color from RGBA components.
+  ##
+  ## Parameters:
+  ## - `r`: Red component (0-255)
+  ## - `g`: Green component (0-255)
+  ## - `b`: Blue component (0-255)
+  ## - `a`: Alpha component (0-255), 0 = transparent, 255 = opaque
+  ##
+  ## Returns: Color with the given RGBA values
   Color((r.uint32 shl 24) or (g.uint32 shl 16) or (b.uint32 shl 8) or a.uint32)
 
 proc fromHex*(s: string): Color =
-  ## Parse "#RRGGBB" or "#RRGGBBAA".  Raises ValueError on bad input.
+  ## Parse a hex color string.
+  ##
+  ## Accepts formats:
+  ## - `#RRGGBB` (6 hex digits, alpha = 255)
+  ## - `#RRGGBBAA` (8 hex digits, includes alpha)
+  ## - `RRGGBB` or `RRGGBBAA` (leading `#` optional)
+  ##
+  ## Parameters:
+  ## - `s`: Hex color string
+  ##
+  ## Returns: Parsed color
+  ##
+  ## Raises: `ValueError` if the string format is invalid
   let h = if s.len > 0 and s[0] == '#': s[1..^1] else: s
   case h.len
   of 6:
@@ -31,31 +164,65 @@ proc fromHex*(s: string): Color =
 # Accessors
 # ---------------------------------------------------------------------------
 
-proc r*(c: Color): uint8 {.inline.} = uint8(c.uint32 shr 24)
-proc g*(c: Color): uint8 {.inline.} = uint8((c.uint32 shr 16) and 0xFF)
-proc b*(c: Color): uint8 {.inline.} = uint8((c.uint32 shr 8) and 0xFF)
-proc a*(c: Color): uint8 {.inline.} = uint8(c.uint32 and 0xFF)
+proc r*(c: Color): uint8 {.inline.} =
+  ## Get the red component (0-255).
+  uint8(c.uint32 shr 24)
+
+proc g*(c: Color): uint8 {.inline.} =
+  ## Get the green component (0-255).
+  uint8((c.uint32 shr 16) and 0xFF)
+
+proc b*(c: Color): uint8 {.inline.} =
+  ## Get the blue component (0-255).
+  uint8((c.uint32 shr 8) and 0xFF)
+
+proc a*(c: Color): uint8 {.inline.} =
+  ## Get the alpha component (0-255). 0 = transparent, 255 = opaque.
+  uint8(c.uint32 and 0xFF)
 
 # ---------------------------------------------------------------------------
 # Serialisation
 # ---------------------------------------------------------------------------
 
 proc toHex*(c: Color): string =
-  ## Returns "#RRGGBB" when alpha=255, "#RRGGBBAA" otherwise.
+  ## Convert color to hex string.
+  ##
+  ## Returns `#RRGGBB` for opaque colors (alpha=255),
+  ## `#RRGGBBAA` for colors with transparency.
+  ##
+  ## This format is used by the Tank Royale protocol for bot colors.
   if c.a == 0xFF:
     result = '#' & toHex(c.r.int, 2) & toHex(c.g.int, 2) & toHex(c.b.int, 2)
   else:
     result = '#' & toHex(c.r.int, 2) & toHex(c.g.int, 2) & toHex(c.b.int, 2) & toHex(c.a.int, 2)
 
-proc `$`*(c: Color): string = c.toHex
+proc `$`*(c: Color): string =
+  ## Stringify operator -- returns the same as `toHex()`.
+  ##
+  ## Allows using colors directly in string interpolation:
+  ## ```nim
+  ## echo "My color is " & $RED  # "My color is #FF0000"
+  ## ```
+  c.toHex
 
 proc `==`*(a, b: Color): bool {.borrow.}
+  ## Compare two colors for equality.
+  ## Uses the underlying uint32 comparison.
 
 # ---------------------------------------------------------------------------
 # Backward compat: implicit conversion from string literal / variable
 # ---------------------------------------------------------------------------
 
-converter toColor*(s: string): Color = fromHex(s)
+converter toColor*(s: string): Color =
+  ## Implicitly convert a string to a Color.
+  ##
+  ## This allows passing hex strings or color names directly to procedures
+  ## that expect a `Color`:
+  ## ```nim
+  ## setBodyColor("#FF0000")  # Hex string
+  ## setBodyColor("RED")      # Named color (via fromHex)
+  ## ```
+  fromHex(s)
 
 # ---------------------------------------------------------------------------
 # Named constants (all 141 from Java Color class)

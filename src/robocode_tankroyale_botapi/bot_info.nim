@@ -1,23 +1,53 @@
-## BotInfo: bot identification loaded from a JSON file or environment variables.
+## Bot identity and metadata loading for Robocode Tank Royale.
+##
+## `BotInfo` stores information about your bot such as its name, version, authors,
+## description, and supported game types. This metadata is sent to the server
+## during the initial connection handshake.
+##
+## ## How metadata is loaded
+##
+## When calling `start(bot, "MyBot.json")`, `loadBotInfo` resolves the bot info in this order:
+##
+## 1. **JSON file**: If a path to a JSON file is provided and exists, metadata is parsed from it.
+## 2. **JSON file next to binary**: If `jsonFile` is relative, it also looks in the application directory.
+## 3. **Environment variables**: If no JSON file is specified or found, fallback values are read from
+##    environment variables (`BOT_NAME`, `BOT_VERSION`, `BOT_AUTHORS`, `BOT_DESCRIPTION`, etc.).
+##
+## ## JSON Profile Example (`MyBot.json`)
+##
+## ```
+## {
+##   "name": "My First Bot",
+##   "version": "1.0",
+##   "authors": ["Alice", "Bob"],
+##   "description": "A battle bot built with Nim",
+##   "homepage": "https://example.com/mybot",
+##   "countryCodes": ["us", "ca"],
+##   "gameTypes": ["classic", "melee", "1v1"],
+##   "platform": "Nim 2.0",
+##   "programmingLang": "Nim"
+## }
+## ```
 
 import std/[os, json, strutils, sequtils]
 import ./schemas
 
-const MAX_NAME_LEN* = 63  ## Maximum characters allowed in BotInfo.name
+const MAX_NAME_LEN* = 63  ## Maximum allowed length in characters for `BotInfo.name`.
 
 type
   BotInfo* = object
-    name*:           string
-    version*:        string
-    authors*:        seq[string]
-    description*:    string
-    homepage*:       string
-    countryCodes*:   seq[string]
-    gameTypes*:      seq[string]
-    platform*:       string
-    programmingLang*: string
-    initialPosition*: InitialPosition
-    isDroid*:         bool
+    ## Contains all metadata identifying a bot to the Tank Royale server.
+    name*:           string         ## Name of the bot (max 63 characters)
+    version*:        string         ## Version string (e.g. "1.0.0")
+    authors*:        seq[string]    ## List of author names
+    description*:    string         ## Short summary of what the bot does
+    homepage*:       string         ## URL to bot webpage or repo
+    countryCodes*:   seq[string]    ## ISO 3166-1 alpha-2 country codes (e.g. @["US"])
+    gameTypes*:      seq[string]    ## Supported modes ("classic", "melee", "1v1")
+    platform*:       string         ## Platform string (defaults to Nim version)
+    programmingLang*: string        ## Programming language ("Nim")
+    initialPosition*: InitialPosition ## Optional starting coordinates (x, y, direction)
+    isDroid*:         bool          ## True if this bot is a Droid (extra energy, no radar)
 
 proc newBotInfo*(name: string; version: string; authors: seq[string];
                  description = ""; homepage = "";
@@ -25,8 +55,12 @@ proc newBotInfo*(name: string; version: string; authors: seq[string];
                  gameTypes: seq[string] = @[];
                  platform = ""; programmingLang = "";
                  isDroid = false): BotInfo =
-  ## Validated constructor: trims all string fields, uppercases country codes,
-  ## and raises ValueError if name exceeds MAX_NAME_LEN characters.
+  ## Construct a validated `BotInfo` object.
+  ##
+  ## Trims whitespace from all string fields, converts country codes to uppercase,
+  ## and ensures `name` does not exceed `MAX_NAME_LEN` (63 characters).
+  ##
+  ## Raises `ValueError` if the bot name is too long.
   let n = name.strip
   if n.len > MAX_NAME_LEN:
     raise newException(ValueError,
@@ -43,6 +77,7 @@ proc newBotInfo*(name: string; version: string; authors: seq[string];
   result.isDroid       = isDroid
 
 proc botInfoFromJson*(path: string): BotInfo =
+  ## Parse a `BotInfo` structure from a JSON configuration file at `path`.
   let data = parseJson(readFile(path))
   result.name    = data{"name"}.getStr
   result.version = data{"version"}.getStr
@@ -64,7 +99,11 @@ proc botInfoFromJson*(path: string): BotInfo =
   result.isDroid = data{"isDroid"}.getBool(false)
 
 proc botInfoFromEnv*(): BotInfo =
-  ## Fall back to environment variables when no JSON file is given.
+  ## Load `BotInfo` settings from environment variables.
+  ##
+  ## Uses variables like `BOT_NAME`, `BOT_VERSION`, `BOT_AUTHORS`, `BOT_DESCRIPTION`,
+  ## `BOT_HOMEPAGE`, `BOT_COUNTRY_CODES`, `BOT_GAME_TYPES`, `BOT_PLATFORM`,
+  ## `BOT_PROGRAMMING_LANG`, and `BOT_IS_DROID`.
   result.name    = getEnv("BOT_NAME", "Unnamed Bot")
   result.version = getEnv("BOT_VERSION", "1.0")
   let authorsStr = getEnv("BOT_AUTHORS", "Unknown")
@@ -81,6 +120,11 @@ proc botInfoFromEnv*(): BotInfo =
   result.isDroid = getEnv("BOT_IS_DROID", "false").toLowerAscii == "true"
 
 proc loadBotInfo*(jsonFile: string = ""): BotInfo =
+  ## Load bot configuration from a JSON file, or fall back to environment variables.
+  ##
+  ## If `jsonFile` is provided, it tries to read from that path. If not found directly,
+  ## it also checks relative to the application's binary directory. If `jsonFile` is empty
+  ## or missing, it falls back to environment variables via `botInfoFromEnv`.
   var resolved = ""
   if jsonFile.len > 0:
     if fileExists(jsonFile):

@@ -1,20 +1,45 @@
 ## Core bot implementation for Robocode Tank Royale Nim bot API.
 ##
-## Threading model
-## ---------------
-## Main thread:  WebSocket receive loop.  Receives all server messages,
-##               updates shared state, runs processTurn, then wakes bot thread.
-## Bot thread:   Persistent for the game lifetime. Loops: waits for start-round
-##               signal → dispatches events, runs user's `run()` / go() loop →
-##               signals round-done → waits again. Never exits until shutdown.
-## Sender thread: Owns all WebSocket writes during gameplay — reads from
-##               gIntentChan and calls ws.send.
+## This module defines the `Bot` base type, state query procedures, movement commands,
+## and event handler methods.
 ##
-## Synchronisation uses four channels:
-##   tickChan      main → bot     (true = new tick ready; false = stop this round)
-##   intentChan    bot  → sender  (JSON string to send to server; "" = stop)
-##   startRoundChan main → bot    (true = begin round; false = final shutdown)
-##   roundDoneChan  bot → main    (sent when round loop finishes, back to idle)
+## ## How to Create a Bot
+##
+## To create a bot, subclass `Bot` and override the `run` method:
+##
+## ```nim
+## import robocode_tankroyale_botapi
+##
+## type MyBot = ref object of Bot
+##
+## method run(bot: MyBot) =
+##   while isRunning():
+##     forward(100)
+##     turnGunLeft(360)
+##     back(100)
+##     turnGunRight(360)
+## ```
+##
+## ## Methods vs Procedures
+##
+## - **Event Handlers** (like `run`, `onScannedBot`, `onHitByBullet`) are **methods** that take `bot: Bot` as their first parameter. Override these to define your bot's behavior.
+## - **Actions and State Queries** (like `forward`, `turnLeft`, `getX`, `getEnergy`) are **procedures** that operate on the active global bot instance automatically. You can call them directly inside `run` or your event handlers.
+##
+## ## Blocking vs Non-Blocking Commands
+##
+## The API provides two styles of movement:
+##
+## 1. **Blocking commands**: `forward(100)`, `turnLeft(90)`, `turnGunRight(45)`.
+##    These execute step-by-step each tick and block your bot's execution thread until the action finishes.
+## 2. **Non-blocking (Independent) setters**: `setForward(100)`, `setTurnLeft(90)`, `setTurnGunRight(45)`.
+##    These set the target movement for future ticks without blocking. You must call `go()` manually to execute one turn/tick.
+##
+## ## Threading Architecture
+##
+## Under the hood, Nim bot execution uses three threads:
+## - **Main thread**: Runs the WebSocket receive loop, receives server updates, updates shared state, and signals ticks.
+## - **Bot thread**: Runs your `run()` loop and event callbacks. Blocks on `go()`.
+## - **Sender thread**: Sends your intent commands to the server via WebSocket.
 
 import std/[json, locks, math, os, posix, syncio, tables]
 import ./constants
@@ -122,56 +147,184 @@ var gInterrupted: bool        # flag-based interruptibility (checked by blocking
 var gBotInfo*: BotInfo
 
 # ---------------------------------------------------------------------------
-# Safe readers (can be called from bot thread without lock in most cases
-# because they read after the tick channel signal — happens-before is enough)
+# State queries and readers
 # ---------------------------------------------------------------------------
 
-proc getMyId*(): int            = withLock(gLock): result = gMyId
-proc getRound*(): int           = withLock(gLock): result = gRound
-proc getTurn*(): int            = withLock(gLock): result = gTurn
-proc getEnemyCount*(): int      = withLock(gLock): result = gEnemyCount
-proc getEnergy*(): float        = withLock(gLock): result = gState.energy
-proc getX*(): float             = withLock(gLock): result = gState.x
-proc getY*(): float             = withLock(gLock): result = gState.y
-proc getDirection*(): float     = withLock(gLock): result = gState.direction
-proc getGunDirection*(): float  = withLock(gLock): result = gState.gunDirection
-proc getRadarDirection*(): float= withLock(gLock): result = gState.radarDirection
-proc getRadarSweep*(): float    = withLock(gLock): result = gState.radarSweep
-proc getSpeed*(): float         = withLock(gLock): result = gState.speed
-proc getTurnRate*(): float      = withLock(gLock): result = gState.turnRate
-proc getGunTurnRate*(): float   = withLock(gLock): result = gState.gunTurnRate
-proc getRadarTurnRate*(): float = withLock(gLock): result = gState.radarTurnRate
-proc getGunHeat*(): float       = withLock(gLock): result = gState.gunHeat
-proc getBodyColor*(): Color    = withLock(gLock): result = gState.bodyColor
-proc getTurretColor*(): Color  = withLock(gLock): result = gState.turretColor
-proc getRadarColor*(): Color   = withLock(gLock): result = gState.radarColor
-proc getBulletColor*(): Color  = withLock(gLock): result = gState.bulletColor
-proc getScanColor*(): Color    = withLock(gLock): result = gState.scanColor
-proc getTracksColor*(): Color  = withLock(gLock): result = gState.tracksColor
-proc getGunColor*(): Color     = withLock(gLock): result = gState.gunColor
-proc getArenaWidth*(): int      = withLock(gLock): result = gGameSetup.arenaWidth
-proc getArenaHeight*(): int     = withLock(gLock): result = gGameSetup.arenaHeight
-proc getGameType*(): string     = withLock(gLock): result = gGameSetup.gameType
-proc getNumberOfRounds*(): int  = withLock(gLock): result = gGameSetup.numberOfRounds
-proc getGunCoolingRate*(): float= withLock(gLock): result = gGameSetup.gunCoolingRate
-proc getMaxInactivityTurns*(): int = withLock(gLock): result = gGameSetup.maxInactivityTurns
-proc getTurnTimeout*(): int     = withLock(gLock): result = gGameSetup.turnTimeout
-proc getTimeLeft*(): int        = getTurnTimeout() # ponytail: returns turnTimeout as ceiling; precise impl needs tick timestamp + elapsed tracking
-proc getVariant*(): string      = withLock(gLock): result = gVariant
-proc getServerVersion*(): string= withLock(gLock): result = gServerVersion
-proc isRunning*(): bool         = withLock(gLock): result = gRunning
-proc isDroid*(): bool           = withLock(gLock): result = gState.isDroid
-proc isDisabled*(): bool        = getEnergy() == 0.0
-proc isStopped*(): bool         = gStopped
-proc getBulletStates*(): seq[BulletState] = withLock(gLock): result = gBullets
-proc getTeammateIds*(): seq[int]= withLock(gLock): result = gTeammateIds
+proc getMyId*(): int =
+  ## Returns your bot's unique ID assigned by the server for the current battle.
+  withLock(gLock): result = gMyId
+
+proc getRound*(): int =
+  ## Returns the current 1-based round number in the battle.
+  withLock(gLock): result = gRound
+
+proc getTurn*(): int =
+  ## Returns the current 1-based turn number within the current round.
+  withLock(gLock): result = gTurn
+
+proc getEnemyCount*(): int =
+  ## Returns the number of opponent bots currently alive in the arena.
+  withLock(gLock): result = gEnemyCount
+
+proc getEnergy*(): float =
+  ## Returns your bot's current energy level (hit points). Starts at 100.0 (or 120.0 for Droids).
+  withLock(gLock): result = gState.energy
+
+proc getX*(): float =
+  ## Returns your bot's current X coordinate in the arena (0 is left edge).
+  withLock(gLock): result = gState.x
+
+proc getY*(): float =
+  ## Returns your bot's current Y coordinate in the arena (0 is top edge).
+  withLock(gLock): result = gState.y
+
+proc getDirection*(): float =
+  ## Returns your bot body's current heading in degrees [0, 360). 0° = North (up), 90° = East (right).
+  withLock(gLock): result = gState.direction
+
+proc getGunDirection*(): float =
+  ## Returns your bot gun's current heading in degrees [0, 360). 0° = North, 90° = East.
+  withLock(gLock): result = gState.gunDirection
+
+proc getRadarDirection*(): float =
+  ## Returns your bot radar's current heading in degrees [0, 360). 0° = North, 90° = East.
+  withLock(gLock): result = gState.radarDirection
+
+proc getRadarSweep*(): float =
+  ## Returns the radar sweep angle (degrees turned) during the last turn.
+  withLock(gLock): result = gState.radarSweep
+
+proc getSpeed*(): float =
+  ## Returns your bot's current velocity in units per turn from `-8.0` to `8.0`. Positive is forward, negative is backward.
+  withLock(gLock): result = gState.speed
+
+proc getTurnRate*(): float =
+  ## Returns your body's turn rate in degrees per turn from `-10.0` to `10.0`.
+  withLock(gLock): result = gState.turnRate
+
+proc getGunTurnRate*(): float =
+  ## Returns your gun's turn rate in degrees per turn from `-20.0` to `20.0`.
+  withLock(gLock): result = gState.gunTurnRate
+
+proc getRadarTurnRate*(): float =
+  ## Returns your radar's turn rate in degrees per turn from `-45.0` to `45.0`.
+  withLock(gLock): result = gState.radarTurnRate
+
+proc getGunHeat*(): float =
+  ## Returns current gun heat. You can only fire when gun heat is 0.0.
+  withLock(gLock): result = gState.gunHeat
+
+proc getBodyColor*(): Color =
+  ## Returns current body color of your bot.
+  withLock(gLock): result = gState.bodyColor
+
+proc getTurretColor*(): Color =
+  ## Returns current turret color of your bot.
+  withLock(gLock): result = gState.turretColor
+
+proc getRadarColor*(): Color =
+  ## Returns current radar color of your bot.
+  withLock(gLock): result = gState.radarColor
+
+proc getBulletColor*(): Color =
+  ## Returns current color of bullets fired by your bot.
+  withLock(gLock): result = gState.bulletColor
+
+proc getScanColor*(): Color =
+  ## Returns current color of your radar scan arc.
+  withLock(gLock): result = gState.scanColor
+
+proc getTracksColor*(): Color =
+  ## Returns current color of your bot's tracks.
+  withLock(gLock): result = gState.tracksColor
+
+proc getGunColor*(): Color =
+  ## Returns current color of your gun barrel.
+  withLock(gLock): result = gState.gunColor
+
+proc getArenaWidth*(): int =
+  ## Returns the arena width in pixels/units (typically 800).
+  withLock(gLock): result = gGameSetup.arenaWidth
+
+proc getArenaHeight*(): int =
+  ## Returns the arena height in pixels/units (typically 600).
+  withLock(gLock): result = gGameSetup.arenaHeight
+
+proc getGameType*(): string =
+  ## Returns the game mode ("classic", "melee", or "1v1").
+  withLock(gLock): result = gGameSetup.gameType
+
+proc getNumberOfRounds*(): int =
+  ## Returns the total number of rounds in this battle.
+  withLock(gLock): result = gGameSetup.numberOfRounds
+
+proc getGunCoolingRate*(): float =
+  ## Returns the gun cooling rate per turn (typically 0.1).
+  withLock(gLock): result = gGameSetup.gunCoolingRate
+
+proc getMaxInactivityTurns*(): int =
+  ## Returns maximum allowed inactive turns before taking zap damage.
+  withLock(gLock): result = gGameSetup.maxInactivityTurns
+
+proc getTurnTimeout*(): int =
+  ## Returns the maximum turn processing timeout in microseconds.
+  withLock(gLock): result = gGameSetup.turnTimeout
+
+proc getTimeLeft*(): int =
+  ## Returns turn timeout limit in microseconds.
+  getTurnTimeout()
+
+proc getVariant*(): string =
+  ## Returns server variant string.
+  withLock(gLock): result = gVariant
+
+proc getServerVersion*(): string =
+  ## Returns server version string.
+  withLock(gLock): result = gServerVersion
+
+proc isRunning*(): bool =
+  ## Returns true while the current round is actively running.
+  withLock(gLock): result = gRunning
+
+proc isDroid*(): bool =
+  ## Returns true if your bot is configured as a Droid.
+  withLock(gLock): result = gState.isDroid
+
+proc isDisabled*(): bool =
+  ## Returns true if your bot is disabled (energy <= 0.0).
+  getEnergy() == 0.0
+
+proc isStopped*(): bool =
+  ## Returns true if movement has been paused via `stop()` or `setStop()`.
+  gStopped
+
+proc getBulletStates*(): seq[BulletState] =
+  ## Returns states of all active bullets currently traveling in the arena.
+  withLock(gLock): result = gBullets
+
+proc getTeammateIds*(): seq[int] =
+  ## Returns a sequence of bot IDs belonging to your team.
+  withLock(gLock): result = gTeammateIds
+
 proc isTeammate*(botId: int): bool =
+  ## Returns true if the given `botId` belongs to a teammate.
   withLock(gLock): result = gTeammateIds.contains(botId)
 
-proc getDistanceRemaining*(): float  = gDistanceRemaining
-proc getTurnRemaining*(): float      = gTurnRemaining
-proc getGunTurnRemaining*(): float   = gGunTurnRemaining
-proc getRadarTurnRemaining*(): float = gRadarTurnRemaining
+proc getDistanceRemaining*(): float =
+  ## Returns remaining distance for current `forward()` or `setForward()` movement.
+  gDistanceRemaining
+
+proc getTurnRemaining*(): float =
+  ## Returns remaining degrees for current `turnLeft()` / `turnRight()` movement.
+  gTurnRemaining
+
+proc getGunTurnRemaining*(): float =
+  ## Returns remaining degrees for current gun turning command.
+  gGunTurnRemaining
+
+proc getRadarTurnRemaining*(): float =
+  ## Returns remaining degrees for current radar turning command.
+  gRadarTurnRemaining
 
 proc getBotName*(id: int): string =
   ## Lookup bot name by id from the last BotListUpdate. Returns "" if unknown.
@@ -293,24 +446,28 @@ proc buildIntentJson*(): string =
 # ---------------------------------------------------------------------------
 
 proc setTurnRate*(rate: float) =
+  ## Non-blocking: Set continuous body turn rate in degrees per turn from `-10.0` to `10.0`.
   gIntentTurnRate = rate.clamp(-gMaxTurnRate, gMaxTurnRate)
   gOverrideTurnRate = false
   gContinuousTurnRate = rate
   gTurnRemaining = toInfiniteValue(rate)
 
 proc setGunTurnRate*(rate: float) =
+  ## Non-blocking: Set continuous gun turn rate in degrees per turn from `-20.0` to `20.0`.
   gIntentGunTurnRate = rate.clamp(-gMaxGunTurnRate, gMaxGunTurnRate)
   gOverrideGunTurnRate = false
   gContinuousGunTurnRate = rate
   gGunTurnRemaining = toInfiniteValue(rate)
 
 proc setRadarTurnRate*(rate: float) =
+  ## Non-blocking: Set continuous radar turn rate in degrees per turn from `-45.0` to `45.0`.
   gIntentRadarTurnRate = rate.clamp(-gMaxRadarTurnRate, gMaxRadarTurnRate)
   gOverrideRadarTurnRate = false
   gContinuousRadarTurnRate = rate
   gRadarTurnRemaining = toInfiniteValue(rate)
 
 proc setTargetSpeed*(speed: float) =
+  ## Non-blocking: Set continuous target speed in units per turn from `-8.0` to `8.0`.
   gIntentTargetSpeed = speed.clamp(-gMaxSpeed, gMaxSpeed)
   gOverrideTargetSpeed = false
   gContinuousTargetSpeed = speed
@@ -322,21 +479,45 @@ proc setTargetSpeed*(speed: float) =
     gDistanceRemaining = 0.0
 
 proc setFire*(firepower: float): bool =
+  ## Non-blocking: Attempt to queue a bullet to fire on the next tick with `firepower` between 0.1 and 3.0.
+  ## Returns true if firepower is valid, bot has enough energy, and gun heat is 0.0.
   let fp = firepower.clamp(MIN_FIRE_POWER, MAX_FIRE_POWER)
   if getEnergy() < fp or getGunHeat() > 0.0:
     return false
   gIntentFirepower = fp
   return true
 
-proc setRescan*() = gIntentRescan = true
+proc setRescan*() =
+  ## Non-blocking: Queue a radar rescan for the next tick.
+  gIntentRescan = true
 
-proc setBodyColor*(color: Color)   = gIntentBodyColor   = color
-proc setTurretColor*(color: Color) = gIntentTurretColor = color
-proc setRadarColor*(color: Color)  = gIntentRadarColor  = color
-proc setBulletColor*(color: Color) = gIntentBulletColor = color
-proc setScanColor*(color: Color)   = gIntentScanColor   = color
-proc setTracksColor*(color: Color) = gIntentTracksColor = color
-proc setGunColor*(color: Color)    = gIntentGunColor    = color
+proc setBodyColor*(color: Color)   =
+  ## Set body color of your bot. Accepts `Color` or hex string.
+  gIntentBodyColor = color
+
+proc setTurretColor*(color: Color) =
+  ## Set turret color of your bot. Accepts `Color` or hex string.
+  gIntentTurretColor = color
+
+proc setRadarColor*(color: Color)  =
+  ## Set radar color of your bot. Accepts `Color` or hex string.
+  gIntentRadarColor = color
+
+proc setBulletColor*(color: Color) =
+  ## Set color of bullets fired by your bot. Accepts `Color` or hex string.
+  gIntentBulletColor = color
+
+proc setScanColor*(color: Color)   =
+  ## Set color of your radar scan arc. Accepts `Color` or hex string.
+  gIntentScanColor = color
+
+proc setTracksColor*(color: Color) =
+  ## Set color of your bot's tracks. Accepts `Color` or hex string.
+  gIntentTracksColor = color
+
+proc setGunColor*(color: Color)    =
+  ## Set color of your gun barrel. Accepts `Color` or hex string.
+  gIntentGunColor = color
 
 proc printToStdOut*(s: string) =
   ## Append s to this tick's stdOut payload (sent to server in BotIntent).
@@ -347,36 +528,82 @@ proc printToStdErr*(s: string) =
   gIntentStdErr.add s
 
 proc broadcastTeamMessage*(message: string) =
-  ## Send a message to all teammates this tick.
+  ## Send a text message to all teammates during this tick.
   gIntentTeamMessages.add TeamMessage(message: message, messageType: "String")
 
 proc sendTeamMessage*(botId: int; message: string) =
-  ## Send a message to a specific teammate this tick.
+  ## Send a text message to a specific teammate (`botId`) during this tick.
   gIntentTeamMessages.add TeamMessage(message: message, messageType: "String", receiverId: botId)
 
-proc setAdjustGunForBodyTurn*(v: bool)   = gIntentAdjGunBody   = v
-proc setAdjustRadarForBodyTurn*(v: bool) = gIntentAdjRadarBody = v
-proc setFireAssist*(enable: bool) = gIntentFireAssist = enable
-proc setAdjustRadarForGunTurn*(v: bool)  =
+proc setAdjustGunForBodyTurn*(v: bool) =
+  ## Configure whether gun stays independent of body turning (true) or turns with body (false).
+  gIntentAdjGunBody = v
+
+proc setAdjustRadarForBodyTurn*(v: bool) =
+  ## Configure whether radar stays independent of body turning (true) or turns with body (false).
+  gIntentAdjRadarBody = v
+
+proc setFireAssist*(enable: bool) =
+  ## Enable or disable auto-fire assist when gun is on target.
+  gIntentFireAssist = enable
+
+proc setAdjustRadarForGunTurn*(v: bool) =
+  ## Configure whether radar stays independent of gun turning (true) or turns with gun (false).
   gIntentAdjRadarGun = v
   setFireAssist(not v)
 
-proc isAdjustGunForBodyTurn*(): bool    = gIntentAdjGunBody
-proc isAdjustRadarForBodyTurn*(): bool  = gIntentAdjRadarBody
-proc isAdjustRadarForGunTurn*(): bool   = gIntentAdjRadarGun
+proc isAdjustGunForBodyTurn*(): bool    =
+  ## Returns true if gun stays independent of body turning.
+  gIntentAdjGunBody
 
-proc getTargetSpeed*(): float = gIntentTargetSpeed
-proc getFirepower*(): float   = gIntentFirepower
+proc isAdjustRadarForBodyTurn*(): bool  =
+  ## Returns true if radar stays independent of body turning.
+  gIntentAdjRadarBody
+
+proc isAdjustRadarForGunTurn*(): bool   =
+  ## Returns true if radar stays independent of gun turning.
+  gIntentAdjRadarGun
+
+proc getTargetSpeed*(): float =
+  ## Returns target speed set for current turn.
+  gIntentTargetSpeed
+
+proc getFirepower*(): float =
+  ## Returns queued firepower for current turn.
+  gIntentFirepower
 
 # Convenience math re-exports (state-aware wrappers; pure-math helpers come from utils)
-proc calcBearing*(direction: float): float = botutils.calcDeltaAngle(direction, getDirection())
-proc calcGunBearing*(direction: float): float = botutils.calcDeltaAngle(direction, getGunDirection())
-proc calcRadarBearing*(direction: float): float = botutils.calcDeltaAngle(direction, getRadarDirection())
-proc bearingTo*(x, y: float): float = botutils.bearingTo(getX(), getY(), getDirection(), x, y)
-proc gunBearingTo*(x, y: float): float = botutils.bearingTo(getX(), getY(), getGunDirection(), x, y)
-proc radarBearingTo*(x, y: float): float = botutils.normalizeRelativeAngle(botutils.directionTo(getX(), getY(), x, y) - getRadarDirection())
-proc directionTo*(x, y: float): float = botutils.directionTo(getX(), getY(), x, y)
-proc distanceTo*(x, y: float): float  = botutils.distanceTo(getX(), getY(), x, y)
+proc calcBearing*(direction: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your bot's body heading to `direction`.
+  botutils.calcDeltaAngle(direction, getDirection())
+
+proc calcGunBearing*(direction: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your gun heading to `direction`.
+  botutils.calcDeltaAngle(direction, getGunDirection())
+
+proc calcRadarBearing*(direction: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your radar heading to `direction`.
+  botutils.calcDeltaAngle(direction, getRadarDirection())
+
+proc bearingTo*(x, y: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your bot's position and heading to target (x, y).
+  botutils.bearingTo(getX(), getY(), getDirection(), x, y)
+
+proc gunBearingTo*(x, y: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your gun heading to target (x, y).
+  botutils.bearingTo(getX(), getY(), getGunDirection(), x, y)
+
+proc radarBearingTo*(x, y: float): float =
+  ## Calculate relative bearing in degrees [-180, 180) from your radar heading to target (x, y).
+  botutils.normalizeRelativeAngle(botutils.directionTo(getX(), getY(), x, y) - getRadarDirection())
+
+proc directionTo*(x, y: float): float =
+  ## Calculate absolute direction in degrees [0, 360) from your bot's position to target (x, y).
+  botutils.directionTo(getX(), getY(), x, y)
+
+proc distanceTo*(x, y: float): float =
+  ## Calculate Euclidean distance in units from your bot's position to target (x, y).
+  botutils.distanceTo(getX(), getY(), x, y)
 
 # ---------------------------------------------------------------------------
 # Bot motion processing (called on first turn and each subsequent turn)
@@ -520,30 +747,120 @@ proc processTurn*() =
 # NOTE: must be defined before dispatchEvent() below
 # ---------------------------------------------------------------------------
 
-method run*(bot: Bot)               {.base.} = discard
-method onConnected*(bot: Bot, e: ConnectedEvent)       {.base.} = discard
-method onDisconnected*(bot: Bot, e: DisconnectedEvent) {.base.} = discard
-method onConnectionError*(bot: Bot, e: ConnectionErrorEvent) {.base.} = discard
-method onGameStarted*(bot: Bot, e: GameStartedEventForBot) {.base.} = discard
-method onGameEnded*(bot: Bot, e: GameEndedEventForBot)     {.base.} = discard
-method onGameAborted*(bot: Bot)     {.base.} = discard
-method onRoundStarted*(bot: Bot, e: RoundStartedEvent) {.base.} = discard
-method onRoundEnded*(bot: Bot, e: RoundEndedEventForBot) {.base.} = discard
-method onTick*(bot: Bot, e: TickEventForBot) {.base.} = discard
-method onSkippedTurn*(bot: Bot, e: SkippedTurnEvent) {.base.} = discard
-method onBotDeath*(bot: Bot, e: BotDeathEvent) {.base.} = discard
-method onBulletFired*(bot: Bot, e: BulletFiredEvent) {.base.} = discard
-method onBulletHit*(bot: Bot, e: BulletHitBotEvent) {.base.} = discard
-method onBulletHitBullet*(bot: Bot, e: BulletHitBulletEvent) {.base.} = discard
-method onBulletHitWall*(bot: Bot, e: BulletHitWallEvent) {.base.} = discard
-method onHitByBullet*(bot: Bot, e: HitByBulletEvent) {.base.} = discard
-method onHitBot*(bot: Bot, e: BotHitBotEvent) {.base.} = discard
-method onHitWall*(bot: Bot, e: BotHitWallEvent) {.base.} = discard
-method onScannedBot*(bot: Bot, e: ScannedBotEvent) {.base.} = discard
-method onWonRound*(bot: Bot, e: WonRoundEvent) {.base.} = discard
-method onTeamMessage*(bot: Bot, e: TeamMessageEvent) {.base.} = discard
-method onDeath*(bot: Bot, e: BotDeathEvent)          {.base.} = discard
-method onCustomEvent*(bot: Bot, e: Condition)        {.base.} = discard
+method run*(bot: Bot) {.base.} =
+  ## Main entry point for your bot's behavior.
+  ##
+  ## Override this method in your `Bot` subtype to define what your bot does.
+  ## This method is called once per round on the dedicated bot thread.
+  ##
+  ## Example:
+  ## ```nim
+  ## type MyBot = ref object of Bot
+  ##
+  ## method run(bot: MyBot) =
+  ##   while isRunning():
+  ##     forward(100)
+  ##     turnGunLeft(360)
+  ##     back(100)
+  ##     turnGunRight(360)
+  ## ```
+  discard
+
+method onConnected*(bot: Bot, e: ConnectedEvent) {.base.} =
+  ## Called when your bot successfully connects to the Tank Royale server.
+  discard
+
+method onDisconnected*(bot: Bot, e: DisconnectedEvent) {.base.} =
+  ## Called when your bot disconnects from the server.
+  discard
+
+method onConnectionError*(bot: Bot, e: ConnectionErrorEvent) {.base.} =
+  ## Called when a network connection error occurs.
+  discard
+
+method onGameStarted*(bot: Bot, e: GameStartedEventForBot) {.base.} =
+  ## Called when a new game starts.
+  ## `e` contains initial position, your bot ID, teammate IDs, and arena setup rules.
+  discard
+
+method onGameEnded*(bot: Bot, e: GameEndedEventForBot) {.base.} =
+  ## Called when the entire game (all rounds) finishes.
+  ## `e` contains final score results and ranking.
+  discard
+
+method onGameAborted*(bot: Bot) {.base.} =
+  ## Called if the game was aborted prematurely by the server host.
+  discard
+
+method onRoundStarted*(bot: Bot, e: RoundStartedEvent) {.base.} =
+  ## Called at the beginning of each round before `run()` starts.
+  discard
+
+method onRoundEnded*(bot: Bot, e: RoundEndedEventForBot) {.base.} =
+  ## Called at the end of each round.
+  ## `e` contains score breakdown for the round.
+  discard
+
+method onTick*(bot: Bot, e: TickEventForBot) {.base.} =
+  ## Called on every game turn (tick) with updated game state.
+  discard
+
+method onSkippedTurn*(bot: Bot, e: SkippedTurnEvent) {.base.} =
+  ## Called when your bot took too long to compute and skipped a turn.
+  discard
+
+method onBotDeath*(bot: Bot, e: BotDeathEvent) {.base.} =
+  ## Called when another bot in the arena is destroyed.
+  discard
+
+method onBulletFired*(bot: Bot, e: BulletFiredEvent) {.base.} =
+  ## Called when your bot fires a bullet.
+  discard
+
+method onBulletHit*(bot: Bot, e: BulletHitBotEvent) {.base.} =
+  ## Called when one of your bullets strikes an enemy bot.
+  discard
+
+method onBulletHitBullet*(bot: Bot, e: BulletHitBulletEvent) {.base.} =
+  ## Called when one of your bullets collides with an opponent's bullet.
+  discard
+
+method onBulletHitWall*(bot: Bot, e: BulletHitWallEvent) {.base.} =
+  ## Called when one of your bullets hits an arena wall.
+  discard
+
+method onHitByBullet*(bot: Bot, e: HitByBulletEvent) {.base.} =
+  ## Called when your bot is struck by an opponent's bullet.
+  discard
+
+method onHitBot*(bot: Bot, e: BotHitBotEvent) {.base.} =
+  ## Called when your bot collides with another bot (ramming).
+  discard
+
+method onHitWall*(bot: Bot, e: BotHitWallEvent) {.base.} =
+  ## Called when your bot collides with an arena wall.
+  discard
+
+method onScannedBot*(bot: Bot, e: ScannedBotEvent) {.base.} =
+  ## Called when your radar detects an enemy bot.
+  ## `e` contains the scanned bot's position, heading, velocity, and energy.
+  discard
+
+method onWonRound*(bot: Bot, e: WonRoundEvent) {.base.} =
+  ## Called when your bot is the last one alive and wins the round!
+  discard
+
+method onTeamMessage*(bot: Bot, e: TeamMessageEvent) {.base.} =
+  ## Called when a teammate sends a message to your bot.
+  discard
+
+method onDeath*(bot: Bot, e: BotDeathEvent) {.base.} =
+  ## Called when your own bot is destroyed.
+  discard
+
+method onCustomEvent*(bot: Bot, e: Condition) {.base.} =
+  ## Called when a custom event registered via `addCustomEvent` evaluates to true.
+  discard
 
 # ---------------------------------------------------------------------------
 # Event dispatch (called from bot thread)
@@ -614,8 +931,17 @@ proc dispatchPendingEvents*(bot: Bot) =
 var gDroppedIntents: int  # bot-thread only; rate-limits drop logging
 
 proc go*() =
-  ## Send current intent to the server and block until the next tick arrives.
-  ## This is the fundamental time-step primitive — all blocking methods use it.
+  ## Send current intent commands to the server and block until the next tick arrives.
+  ##
+  ## `go()` is the core time-step primitive. If you use non-blocking setters like
+  ## `setForward`, `setTurnLeft`, or `setFire`, call `go()` to execute one turn:
+  ##
+  ## ```nim
+  ## setForward(100)
+  ## setTurnGunLeft(90)
+  ## setFire(2.0)
+  ## go() # Sends all commands for this turn
+  ## ```
   if not isRunning():
     raise newException(CatchableError, "Bot is not running")
   # Stop-signal check BEFORE emitting an intent: a pending `false` means the
@@ -665,7 +991,8 @@ proc go*() =
 # ---------------------------------------------------------------------------
 
 proc setStop*(overwrite: bool = false) =
-  ## Non-blocking: save current movement state (IBaseBot API).
+  ## Non-blocking: Pause movement by setting target speed and turn rates to 0.0,
+  ## while saving current movement state so it can be restored later via `setResume()`.
   if not gStopped or overwrite:
     gStopped = true
     gSavedTurnRate      = gIntentTurnRate
@@ -678,7 +1005,7 @@ proc setStop*(overwrite: bool = false) =
     gIntentTargetSpeed  = 0.0
 
 proc setResume*() =
-  ## Non-blocking: restore saved movement state (IBaseBot API).
+  ## Non-blocking: Resume movement that was paused with `setStop()` or `stop()`.
   if gStopped:
     gIntentTurnRate     = gSavedTurnRate
     gIntentGunTurnRate  = gSavedGunTurnRate
@@ -687,46 +1014,74 @@ proc setResume*() =
     gStopped = false
 
 proc stop*(overwrite: bool = false) =
-  ## Blocking: save movement state, then call go() (IBot API).
+  ## Blocking: Pause movement state (via `setStop`), then call `go()` to execute the turn.
   setStop(overwrite)
 
 proc resume*() =
-  ## Blocking: restore saved movement state, then call go() (IBot API).
+  ## Blocking: Restore saved movement state (via `setResume`), then call `go()`.
   setResume()
 
 # ---------------------------------------------------------------------------
-# Blocking movement methods
+# Independent Movement Setters (Non-Blocking)
 # ---------------------------------------------------------------------------
 
 proc setForward*(distance: float) =
+  ## Non-blocking: Set target forward distance in units (negative to move backward).
+  ## Call `go()` to process each turn.
   gOverrideTargetSpeed = true
   let speed = getNewTargetSpeed(gMaxSpeed, getSpeed(), distance)
   gIntentTargetSpeed = speed.clamp(-gMaxSpeed, gMaxSpeed)
   gDistanceRemaining = distance
 
 proc setTurnLeft*(degrees: float) =
+  ## Non-blocking: Set target left turn amount in degrees (negative to turn right).
+  ## Call `go()` to process each turn.
   gOverrideTurnRate = true
   gTurnRemaining    = degrees
   gIntentTurnRate   = degrees.clamp(-gMaxTurnRate, gMaxTurnRate)
 
-proc setTurnRight*(degrees: float)     = setTurnLeft(-degrees)
-proc setBack*(distance: float)         = setForward(-distance)
+proc setTurnRight*(degrees: float) =
+  ## Non-blocking: Set target right turn amount in degrees.
+  setTurnLeft(-degrees)
+
+proc setBack*(distance: float) =
+  ## Non-blocking: Set target backward distance in units.
+  setForward(-distance)
 
 proc setTurnGunLeft*(degrees: float) =
+  ## Non-blocking: Set target left turn amount for the gun in degrees.
   gOverrideGunTurnRate = true
   gGunTurnRemaining    = degrees
   gIntentGunTurnRate   = degrees.clamp(-gMaxGunTurnRate, gMaxGunTurnRate)
 
-proc setTurnGunRight*(degrees: float)  = setTurnGunLeft(-degrees)
+proc setTurnGunRight*(degrees: float) =
+  ## Non-blocking: Set target right turn amount for the gun in degrees.
+  setTurnGunLeft(-degrees)
 
 proc setTurnRadarLeft*(degrees: float) =
+  ## Non-blocking: Set target left turn amount for the radar in degrees.
   gOverrideRadarTurnRate = true
   gRadarTurnRemaining    = degrees
   gIntentRadarTurnRate   = degrees.clamp(-gMaxRadarTurnRate, gMaxRadarTurnRate)
 
-proc setTurnRadarRight*(degrees: float) = setTurnRadarLeft(-degrees)
+proc setTurnRadarRight*(degrees: float) =
+  ## Non-blocking: Set target right turn amount for the radar in degrees.
+  setTurnRadarLeft(-degrees)
+
+# ---------------------------------------------------------------------------
+# Blocking Movement Commands
+# ---------------------------------------------------------------------------
 
 proc forward*(distance: float) =
+  ## Blocking command: Move forward by `distance` units.
+  ##
+  ## Automatically calls `go()` each tick until movement completes.
+  ## Negative values move the bot backward.
+  ##
+  ## Example:
+  ## ```nim
+  ## forward(100) # Move forward 100 units
+  ## ```
   debugLog("[FORWARD] distance=" & $distance & " dir=" & $getDirection())
   if gStopped:
     go()
@@ -737,9 +1092,14 @@ proc forward*(distance: float) =
       go()
   debugLog("[FORWARD-DONE] dir=" & $getDirection() & " distRem=" & $gDistanceRemaining)
 
-proc back*(distance: float) = forward(-distance)
+proc back*(distance: float) =
+  ## Blocking command: Move backward by `distance` units.
+  forward(-distance)
 
 proc turnLeft*(degrees: float) =
+  ## Blocking command: Turn body left (counter-clockwise) by `degrees`.
+  ##
+  ## Automatically calls `go()` each tick until turning completes.
   debugLog("[TURNLEFT] degrees=" & $degrees & " dir=" & $getDirection() & " gunDir=" & $getGunDirection())
   if gStopped:
     go()
@@ -749,9 +1109,12 @@ proc turnLeft*(degrees: float) =
       go()
   debugLog("[TURNLEFT-DONE] dir=" & $getDirection() & " gunDir=" & $getGunDirection() & " turnRem=" & $gTurnRemaining)
 
-proc turnRight*(degrees: float) = turnLeft(-degrees)
+proc turnRight*(degrees: float) =
+  ## Blocking command: Turn body right (clockwise) by `degrees`.
+  turnLeft(-degrees)
 
 proc turnGunLeft*(degrees: float) =
+  ## Blocking command: Turn gun left (counter-clockwise) by `degrees`.
   debugLog("[GUNLEFT] degrees=" & $degrees & " gunDir=" & $getGunDirection())
   if gStopped:
     go()
@@ -761,9 +1124,12 @@ proc turnGunLeft*(degrees: float) =
       go()
   debugLog("[GUNLEFT-DONE] gunDir=" & $getGunDirection() & " gunTurnRem=" & $gGunTurnRemaining)
 
-proc turnGunRight*(degrees: float) = turnGunLeft(-degrees)
+proc turnGunRight*(degrees: float) =
+  ## Blocking command: Turn gun right (clockwise) by `degrees`.
+  turnGunLeft(-degrees)
 
 proc turnRadarLeft*(degrees: float) =
+  ## Blocking command: Turn radar left (counter-clockwise) by `degrees`.
   if gStopped:
     go()
   else:
@@ -771,17 +1137,22 @@ proc turnRadarLeft*(degrees: float) =
     while isRunning() and not gInterrupted and gRadarTurnRemaining != 0.0:
       go()
 
-proc turnRadarRight*(degrees: float) = turnRadarLeft(-degrees)
+proc turnRadarRight*(degrees: float) =
+  ## Blocking command: Turn radar right (clockwise) by `degrees`.
+  turnRadarLeft(-degrees)
 
 proc fire*(firepower: float) =
+  ## Blocking command: Fire a bullet with given `firepower` (between 0.1 and 3.0) and wait one turn.
   discard setFire(firepower)
   go()
 
 proc rescan*() =
+  ## Request an immediate radar rescan and wait one turn.
   setRescan()
   go()
 
 proc waitFor*(condition: proc(): bool) =
+  ## Blocking helper: keep calling `go()` until `condition()` returns true or round ends.
   while isRunning() and not condition():
     go()
 
@@ -979,7 +1350,7 @@ proc signalStop*() =
   ## the next go() instead of another recv(), so send(false) would block
   ## forever and freeze the main receive loop (silent corpse). The main thread
   ## is the only gTickChan sender, so draining right before the send cannot
-  ## race; [true,false] and [false] orderings both unblock cleanly.
+  ## race; `(true, false)` and `(false)` orderings both unblock cleanly.
   debugLog("[SS-ENTER] tid=" & $getThreadId())
   let (drained, val) = gTickChan.tryRecv()
   debugLog("[SS-DRAIN] drained=" & $drained & " val=" & $val & " tid=" & $getThreadId())

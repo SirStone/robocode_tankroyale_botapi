@@ -1,5 +1,30 @@
 ## Priority-based event queue for Robocode Tank Royale bot API.
-## Typed BotEvent variants wrapping schema types, priority-sorted dispatch.
+##
+## Every tick, the server may deliver several events at once (for example you
+## scanned a bot, got hit by a bullet, and a bullet of yours hit an enemy).
+## This module collects them, sorts them by importance, and dispatches them to
+## your bot's event handlers in the correct order.
+##
+## ## Why priority matters
+##
+## Some events are more urgent than others. If you die this tick, it makes no
+## sense to also run your `onScannedBot` logic. Events are sorted so the most
+## important ones run first. The default priority values come from
+## `constants` (e.g. `PRIORITY_DEATH` = 10 is lowest, `PRIORITY_WON_ROUND` =
+## 150 is highest). You can change a kind's priority at runtime with
+## `bot.setEventPriority`.
+##
+## ## Critical events
+##
+## Three event kinds are marked *critical*: `ekDeath`, `ekWonRound`, and
+## `ekSkippedTurn`. Critical events are never deleted when old events are
+## cleaned up, and they are allowed to interrupt a lower-priority handler that
+## is currently running.
+##
+## ## See also
+## - `bot.setEventPriority` -- change dispatch order at runtime
+## - `bot.setInterruptible` -- let the current handler be interrupted
+## - `bot.addCustomEvent` -- register your own event condition
 
 import std/[algorithm, tables]
 import ./constants
@@ -7,27 +32,30 @@ import ./schemas
 
 type
   EventKind* = enum
-    ekTick
-    ekSkippedTurn
-    ekBotDeath
-    ekDeath           ## self-death; isCritical=true
-    ekBulletFired
-    ekBulletHitBot
-    ekBulletHitBullet
-    ekBulletHitWall
-    ekHitByBullet
-    ekHitBot
-    ekHitWall
-    ekScannedBot
-    ekWonRound
-    ekTeamMessage
-    ekCustom
+    ## The kind of an event. Used as the sort key and dispatch selector.
+    ekTick            ## Regular tick (normal game state update)
+    ekSkippedTurn     ## You ran out of time on a turn (critical)
+    ekBotDeath        ## Another bot was destroyed
+    ekDeath           ## Your bot was destroyed (critical)
+    ekBulletFired     ## You fired a bullet
+    ekBulletHitBot    ## Your bullet struck an enemy
+    ekBulletHitBullet ## Your bullet struck another bullet
+    ekBulletHitWall   ## Your bullet struck a wall
+    ekHitByBullet     ## You were struck by a bullet
+    ekHitBot          ## You collided with another bot
+    ekHitWall         ## You collided with a wall
+    ekScannedBot      ## Your radar detected a bot
+    ekWonRound        ## You won the round (critical)
+    ekTeamMessage     ## A teammate sent you a message
+    ekCustom          ## A custom condition you registered became true
 
   Condition* = object
+    ## A named boolean test evaluated every tick for custom events.
     name*: string
     test*: proc(): bool {.closure.}
 
   BotEvent* = object
+    ## A single event with a `turnNumber` and a `kind`-specific payload.
     turnNumber*: int
     case kind*: EventKind
     of ekTick:            tick*: TickEventForBot
@@ -47,6 +75,7 @@ type
     of ekCustom:          condition*: Condition
 
   EventQueue* = object
+    ## Internal queue holding the events for the current tick.
     events*:     seq[BotEvent]
     priorities:  Table[EventKind, int]   ## runtime-mutable overrides
     interruptible*: set[EventKind]
