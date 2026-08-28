@@ -13,7 +13,27 @@ requires "jsony >= 1.1.5"
 task unit, "Run unit tests":
   exec "nim compile --run tests/test_graphics_escape.nim"
 
+task fetch_test_data, "Download shared JSON test definitions from upstream Tank Royale repo":
+  let baseUrl = "https://raw.githubusercontent.com/robocode-dev/tank-royale/main/bot-api/tests/shared/"
+  let files = @[
+    "basebot-defaults.json",
+    "bot-math.json",
+    "botinfo-validation.json",
+    "bullet-state.json",
+    "color-values.json",
+    "constants.json",
+    "event-priorities.json",
+    "event-queue.json",
+    "intent-validation.json",
+    "movement-physics.json",
+    "test-definition.schema.json",
+  ]
+  mkDir "tests/shared"
+  for f in files:
+    exec "curl -fsSL -o tests/shared/" & f & " " & baseUrl & f
+
 task test, "Run all tests (unit + battle integration)":
+  exec "nimble fetch_test_data"
   exec "nimble unit"
   exec "nimble build"
   exec "tests/battle_runner/run_battle_test.sh"
