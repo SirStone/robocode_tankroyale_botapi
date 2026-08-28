@@ -1,229 +1,270 @@
-# robocode_tankroyale_botapi — Nim Bot API for Robocode Tank Royale
+# Robocode Tank Royale — Nim Bot API
 
-This is a continuation of the [My First Bot](https://robocode.dev/tutorial/my-first-bot.html) tutorial on robocode.dev. Nim bots compile to native binaries — no VM or interpreter required.
+Welcome! This library lets you write battle tanks for [Robocode Tank Royale](https://robocode.dev) using the [Nim programming language](https://nim-lang.org).
 
-## Why Nim?
+Whether you are completely new to Robocode, new to Nim, or both — this guide will help you build your very first battle bot step by step!
 
-Nim reads and writes a lot like Python, so it is a comfortable place to start even if you have never used a compiled language before. When you build your bot, Nim turns your code into a single standalone program — no Python interpreter, no Java runtime, no Node.js required on the machine that runs it, just one file that you can run directly. That is what makes it stand out from the other Tank Royale bot languages: Java, Python, .NET, and TypeScript bots all need their runtime installed wherever they run, while a Nim bot is entirely self-contained the moment it is compiled. You write friendly, readable code and get a lean, fast program out the other end — a pretty great deal.
+---
 
-## Install Nim and Nimble
+## 🌟 What is Robocode Tank Royale?
 
-The recommended way is [choosenim](https://github.com/dom96/choosenim) — Nim's version manager, which installs both Nim and Nimble in one shot.
+[Robocode Tank Royale](https://robocode.dev) is an open-source programming game where you write software to control a virtual battle tank. Your tank competes against other player-written tanks in a real-time 2D arena.
 
-**Linux/macOS:**
+- 🌐 **Official Website**: [https://robocode.dev](https://robocode.dev)
+- 🐙 **Official GitHub Repository**: [github.com/robocode-dev/tank-royale](https://github.com/robocode-dev/tank-royale)
 
-```sh
-curl https://nim-lang.org/choosenim/init.sh -sSf | sh
+Every turn (30 turns per second by default), your code decides how far your body moves, how much your gun and radar turn, and whether to fire a bullet!
+
+---
+
+## ⚡ Why Nim for Tank Royale?
+
+[Nim](https://nim-lang.org) is a modern programming language that looks and feels clean like Python, but compiles directly to native machine code like C++.
+
+- 👑 **Official Website**: [https://nim-lang.org](https://nim-lang.org)
+- 🐣 **Super Easy to Learn**: Python-like syntax without complex boilerplate.
+- 📦 **Standalone Binary**: Compiles into a single executable file. Unlike Java, Python, or Node.js bots, a Nim bot doesn't require any runtime or virtual machine installed on the target machine!
+- ⚡ **Fast Execution**: Outstanding performance so your bot never skips a turn.
+
+---
+
+## 🚀 Quick Start Guide
+
+### Step 1: Install Nim and Nimble
+
+Nimble is Nim's package manager (comes bundled with [Nim](https://nim-lang.org)).
+
+- **Linux / macOS**: Open a terminal and run:
+  ```bash
+  curl https://nim-lang.org/choosenim/init.sh -sSf | sh
+  ```
+- **Windows**: Download and run the installer from [nim-lang.org/install_windows.html](https://nim-lang.org/install_windows.html).
+
+Verify your installation by opening a new terminal and typing:
+```bash
+nim -v
+nimble -v
 ```
 
-**Windows:** download the choosenim installer from https://nim-lang.org/install_windows.html
+---
 
-**Alternatives** (may not be the latest release): `brew install nim` (macOS), `apt install nim` (Debian/Ubuntu), `pacman -S nim` (Arch).
+### Step 2: Download Tank Royale
 
-Nimble is bundled with Nim — no separate install needed. Verify your install:
+To test your bot visually, download the official Tank Royale GUI and server from the [Robocode Tank Royale GitHub repository](https://github.com/robocode-dev/tank-royale):
+1. Go to [Tank Royale Releases on GitHub](https://github.com/robocode-dev/tank-royale/releases).
+2. Download the latest `robocode-tankroyale-gui-...jar` (requires Java 11 or newer).
+3. Run the GUI by double-clicking it or running `java -jar robocode-tankroyale-gui-*.jar`.
 
-```sh
-nim --version
-nimble --version
+---
+
+### Step 3: Create Your Bot Folder
+
+Create a folder for your bot (for example, `MyFirstBot`). Every Tank Royale bot needs **4 files** with matching names inside its folder:
+
+```
+MyFirstBot/
+├── MyFirstBot.nimble   # Nim package settings
+├── MyFirstBot.json     # Bot metadata (name, author, version)
+├── MyFirstBot.nim      # Your bot's source code
+├── MyFirstBot.sh       # Startup script for Linux / macOS
+└── MyFirstBot.cmd      # Startup script for Windows
 ```
 
-## Install the API and build
+---
 
-Install the Nim bot API via [Nimble](https://github.com/nim-lang/nimble):
+### Step 4: Create Project Files
 
-```sh
-nimble install robocode_tankroyale_botapi
-```
-
-You should see `robocode_tankroyale_botapi` listed with its version:
-
-```sh
-nimble list --installed | grep tankroyale
-```
-
-Then build your bot (from inside the bot directory):
-
-```sh
-nimble build
-```
-
-This produces a native binary — `MyFirstBot` on Linux/macOS, `MyFirstBot.exe` on Windows.
-
-By default `nimble build` places the binary in the project root (the same directory as the `.nimble` file) — this is correct for the bot layout since the startup scripts reference `./MyFirstBot` in that same directory.
-
-To compile to a different output directory, add `binDir = "bin"` to the `.nimble` file and update the startup scripts accordingly (`exec "./bin/MyFirstBot"` on Linux/macOS, `bin\MyFirstBot.exe` on Windows).
-
-For an optimised release build:
-
-```sh
-nimble build -d:release
-```
-
-## Create a bot project
-
-- Create a directory for your bot, e.g. `~/bots/MyFirstBot/` — all files share this name
-- Register the directory in the Robocode GUI's **Bot Root Configuration**
-- Create a `myFirstBot.nimble` file in that directory:
+#### File 1: `MyFirstBot.nimble`
+This tells Nim how to build your bot and what libraries it needs.
 
 ```nim
 version     = "0.1.0"
 author      = "Your Name"
-description = "My first Tank Royale bot"
+description = "My first battle bot"
 license     = "MIT"
 bin         = @["MyFirstBot"]
 
 requires "nim >= 2.0.0"
-requires "robocode_tankroyale_botapi >= 1.0.1"
+requires "robocode_tankroyale_botapi >= 1.0.5"
 ```
 
-## Create the JSON config file
-
-`MyFirstBot.json` — required fields are `name`, `version`, `authors`:
+#### File 2: `MyFirstBot.json`
+This tells the Tank Royale game manager about your bot's identity.
 
 ```json
 {
   "name": "My First Bot",
   "version": "1.0",
   "authors": ["Your Name"],
-  "description": "My first bot",
+  "description": "A fierce battle tank built with Nim!",
   "homepage": "",
-  "countryCodes": ["us"],
+  "countryCodes": ["US"],
   "gameTypes": ["classic", "melee", "1v1"],
   "platform": "Nim",
   "programmingLang": "Nim"
 }
 ```
 
-## Initial code — `MyFirstBot.nim`
+#### File 3: `MyFirstBot.sh` (Linux / macOS)
+Make sure to make it executable later with `chmod +x MyFirstBot.sh`.
 
-```nim
-import std/os
-import robocode_tankroyale_botapi
-
-const botJson = currentSourcePath().parentDir / "MyFirstBot.json"
-
-type MyFirstBot = ref object of Bot
-```
-
-## The `run` method
-
-```nim
-method run(bot: MyFirstBot) =
-  while isRunning():
-    forward(100)
-    turnGunRight(360)
-    back(100)
-    turnGunRight(360)
-```
-
-## Event handlers
-
-```nim
-method onScannedBot(bot: MyFirstBot, e: ScannedBotEvent) =
-  fire(1)
-
-method onHitByBullet(bot: MyFirstBot, e: HitByBulletEvent) =
-  let bearing = calcBearing(e.bullet.direction)
-  turnLeft(90 - bearing)
-```
-
-## The main entry point
-
-```nim
-when isMainModule:
-  var bot = MyFirstBot()
-  start(bot, botJson)
-```
-
-## Putting it all together
-
-Full combined listing:
-
-```nim
-import std/os
-import robocode_tankroyale_botapi
-
-const botJson = currentSourcePath().parentDir / "MyFirstBot.json"
-
-type MyFirstBot = ref object of Bot
-
-method run(bot: MyFirstBot) =
-  while isRunning():
-    forward(100)
-    turnGunRight(360)
-    back(100)
-    turnGunRight(360)
-
-method onScannedBot(bot: MyFirstBot, e: ScannedBotEvent) =
-  fire(1)
-
-method onHitByBullet(bot: MyFirstBot, e: HitByBulletEvent) =
-  let bearing = calcBearing(e.bullet.direction)
-  turnLeft(90 - bearing)
-
-when isMainModule:
-  var bot = MyFirstBot()
-  start(bot, botJson)
-```
-
-## Startup scripts
-
-The Robocode booter launches bots via shell scripts. Create these two files:
-
-**`MyFirstBot.sh`** (Linux/macOS):
-
-```sh
+```bash
 #!/bin/sh
 cd -- "$(dirname -- "$0")"
 exec "./MyFirstBot"
 ```
 
-Make it executable: `chmod 755 MyFirstBot.sh`
+#### File 4: `MyFirstBot.cmd` (Windows)
 
-**`MyFirstBot.cmd`** (Windows):
-
-```
+```cmd
 @echo off
 cd /d "%~dp0"
 MyFirstBot.exe
 ```
 
-## Packaging your bot
+---
 
-Compile for your target platform, then zip the following files:
+### Step 5: Write Your Bot Code (`MyFirstBot.nim`)
 
-- `MyFirstBot.nim`
-- `MyFirstBot.json`
-- `MyFirstBot.sh`
-- `MyFirstBot.cmd`
-- `MyFirstBot` _(compiled binary — Linux/macOS)_
-- `MyFirstBot.exe` _(compiled binary — Windows)_
-- `README.md` _(optional)_
+Here is a complete, beginner-friendly example of a battle tank:
 
-Upload the zip to share your bot.
+```nim
+import robocode_tankroyale_botapi
 
-## Bot Secrets
+# 1. Define your custom bot type inheriting from Bot
+type MyFirstBot = ref object of Bot
 
-If you're connecting to a server that requires authentication, set the `BOT_SECRETS` environment variable before launching:
+# 2. Overriding `run` -- this is called once when the round starts
+method run(bot: MyFirstBot) =
+  # Set custom appearance colors!
+  setBodyColor(RED)
+  setTurretColor(BLACK)
+  setRadarColor(YELLOW)
+  setBulletColor(RED)
 
-**bash:**
+  # Infinite loop: keep driving and scanning as long as the round is active
+  while isRunning():
+    forward(100)       # Drive forward 100 pixels/units
+    turnGunLeft(360)   # Spin gun in a full circle to scan for enemies
+    back(100)          # Drive backward 100 pixels/units
+    turnGunLeft(360)   # Spin gun in a full circle again
 
-```sh
-export BOT_SECRETS=my-secret
+# 3. Event: Called automatically whenever your radar detects an enemy tank
+method onScannedBot(bot: MyFirstBot; e: ScannedBotEvent) =
+  # Fire a bullet with power 2.0 (firepower ranges from 0.1 weak to 3.0 strong)
+  fire(2.0)
+
+# 4. Event: Called automatically if another tank shoots you
+method onHitByBullet(bot: MyFirstBot; e: HitByBulletEvent) =
+  # Turn perpendicular to the bullet direction to dodge incoming shots
+  let bearing = calcBearing(e.bullet.direction)
+  turnLeft(90 - bearing)
+
+# 5. Program Entry Point
+var bot = MyFirstBot()
+start(bot, "MyFirstBot.json")
 ```
 
-**cmd:**
+---
 
+### Step 6: Build and Run Your Bot!
+
+1. Open your terminal in your bot's folder (`MyFirstBot/`).
+2. Build your bot binary:
+   ```bash
+   nimble build
+   ```
+   *(This generates the executable file `MyFirstBot` or `MyFirstBot.exe`)*.
+
+3. Open the Tank Royale GUI:
+   - Go to **Config** -> **Bot Directories**.
+   - Add the parent directory containing your `MyFirstBot` folder.
+   - Click **Refresh Bot List**.
+   - Select `My First Bot` from the list and start a battle!
+
+---
+
+## 🧭 Understanding Tank Physics & Controls
+
+### Tank Components
+Your tank consists of three independent parts that can move and rotate separately:
+- 🏎️ **Body**: Moves forward/backward and turns left/right.
+- 🎯 **Gun**: Sits on top of the body and turns left/right to aim at enemies.
+- 📡 **Radar**: Sits on top of the gun and rotates to scan for enemy tanks.
+
+### Coordinate System & Angles
+- **(0, 0)** is the top-left corner of the arena.
+- **Angles** are measured in **degrees**:
+  - `0°` = Up / North
+  - `90°` = Right / East
+  - `180°` = Down / South
+  - `270°` = Left / West
+- **Turn Direction**: Positive angles turn **clockwise** (right), negative angles turn **counter-clockwise** (left).
+
+### Movement Commands
+You can control your tank in two ways:
+
+#### 1. Blocking Commands (Easiest for Beginners)
+These procedures execute step-by-step and automatically wait for each movement to finish before continuing to the next line of code:
+- `forward(100)` — Drive forward 100 units.
+- `back(50)` — Drive backward 50 units.
+- `turnLeft(90)` / `turnRight(90)` — Turn body by 90°.
+- `turnGunLeft(360)` / `turnGunRight(360)` — Turn gun by 360°.
+- `fire(2.0)` — Shoot a bullet with power 2.0 and wait 1 turn.
+
+#### 2. Non-Blocking Setters (For Advanced Bots)
+These set target values without waiting, allowing you to combine actions (drive, turn gun, and fire all in the same turn):
+- `setForward(100)`
+- `setTurnLeft(45)`
+- `setTurnGunRight(90)`
+- `setFire(2.0)`
+- `go()` — Sends all queued commands to the server for the current turn.
+
+---
+
+## 🎨 SVG Debug Graphics
+
+Want to visualize what your tank is "thinking"? You can draw debug shapes (lines, circles, text) directly onto the battle arena screen!
+
+```nim
+method run(bot: MyFirstBot) =
+  while isRunning():
+    # Draw a green radar circle around your bot
+    setStrokeColor(GREEN)
+    setStrokeWidth(1.5)
+    drawCircle(getX(), getY(), RADAR_RADIUS)
+
+    # Draw text above your tank
+    setFillColor(WHITE)
+    setFont("Arial", 14)
+    drawText("Scanning...", getX() - 30, getY() - 30)
+
+    go()
 ```
-set BOT_SECRETS=my-secret
-```
 
-**PowerShell:**
+---
 
-```powershell
-$env:BOT_SECRETS = "my-secret"
-```
+## 📚 Sample Bots Included
 
-## API Reference
+This repository includes several ready-to-run sample bots in the `sample_bots/` directory:
+- **`MyFirstBot`**: Simple beginner bot showing basic movement and targeting.
+- **`TrackFire`**: Locks gun onto scanned targets.
+- **`Fire`**: Adjusts firepower based on distance to target.
+- **`Walls`**: Hugs the arena perimeter.
+- **`RamFire`**: Drives straight at enemies to ram them while firing.
+- **`Corners`**: Moves to corners and waits for enemies.
 
-Docs not yet published — see source in `src/`.
+---
+
+## 🔗 Useful Links & Documentation
+
+- 📘 **[Nim Bot API Documentation](https://SirStone.github.io/robocode_tankroyale_botapi/)**: Full API reference for all Nim types, events, and procedures.
+- 🌐 **[Robocode Tank Royale Official Website](https://robocode.dev)**: General game rules, tutorials, and community.
+- 🐙 **[Robocode Tank Royale GitHub Repository](https://github.com/robocode-dev/tank-royale)**: Official game engine, GUI, and protocol specs.
+- 👑 **[Nim Programming Language Official Website](https://nim-lang.org)**: Nim language documentation, tutorials, and package directory.
+
+---
+
+## 📜 License
+
+Distributed under the Apache 2.0 License. See `LICENSE` for details.
