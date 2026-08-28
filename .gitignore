@@ -58,3 +58,9 @@ sample_bots/*/*
 !sample_bots/*/*.nim
 !sample_bots/*/*.json
 !sample_bots/*/*.md
+
+# Compiled test binaries (extensionless on Linux)
+tests/test_*
+tests/mock_server
+
+.claude/worktrees/
