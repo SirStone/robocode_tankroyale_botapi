@@ -39,6 +39,9 @@ task fetch_test_data, "Download shared JSON test definitions from upstream Tank 
   for f in files:
     exec "curl -fsSL -o tests/shared/" & f & " " & baseUrl & f
 
+task docs, "Generate API documentation":
+  exec "nim doc --project --index:on --git.url:https://github.com/SirStone/robocode_tankroyale_botapi --git.commit:main --outdir:docs/api src/robocode_tankroyale_botapi.nim"
+
 task test, "Run all tests (unit + battle integration)":
   exec "nimble fetch_test_data"
   exec "nimble unit"
