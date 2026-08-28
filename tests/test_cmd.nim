@@ -128,3 +128,65 @@ let nanResult = setFire(NaN)
 check("TR-API-CMD-002 setFire NaN fp is clamped to min and fires", nanResult)
 
 echo "All TR-API-CMD Tier 1 tests passed."
+
+# ---------------------------------------------------------------------------
+# TR-API-CMD-003: Radar commands — rescan and adjust flags
+# ---------------------------------------------------------------------------
+# Pure intent-state tests; no server required.
+# setRescan() sets gIntentRescan=true which buildIntentJson() emits as "rescan":true (one-shot).
+# adjustRadar/adjustGun flags are direct bool setters reflected in buildIntentJson().
+
+block:
+  initGlobals()
+
+  # rescan: after setRescan(), buildIntentJson() must include "rescan":true
+  setRescan()
+  let j1 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 setRescan sets rescan=true in intent",
+    j1{"rescan"}.getBool(false) == true)
+
+  # one-shot: after building, a second build must NOT carry rescan again
+  let j2 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 rescan is one-shot (cleared after buildIntentJson)",
+    not j2.hasKey("rescan") or j2{"rescan"}.getBool(false) == false)
+
+  # adjustGunForBodyTurn: flag written into intent when true
+  setAdjustGunForBodyTurn(true)
+  let j3 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustGunForBodyTurn=true emitted",
+    j3{"adjustGunForBodyTurn"}.getBool(false) == true)
+
+  # flag is persistent (not one-shot): still true on next build
+  let j4 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustGunForBodyTurn persists across ticks",
+    j4{"adjustGunForBodyTurn"}.getBool(false) == true)
+
+  # clear the flag: not emitted when false
+  setAdjustGunForBodyTurn(false)
+  let j5 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustGunForBodyTurn=false not emitted",
+    not j5.hasKey("adjustGunForBodyTurn") or j5{"adjustGunForBodyTurn"}.getBool(true) == false)
+
+  # adjustRadarForBodyTurn
+  setAdjustRadarForBodyTurn(true)
+  let j6 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustRadarForBodyTurn=true emitted",
+    j6{"adjustRadarForBodyTurn"}.getBool(false) == true)
+
+  setAdjustRadarForBodyTurn(false)
+  let j7 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustRadarForBodyTurn=false not emitted",
+    not j7.hasKey("adjustRadarForBodyTurn") or j7{"adjustRadarForBodyTurn"}.getBool(true) == false)
+
+  # adjustRadarForGunTurn (also toggles fireAssist)
+  setAdjustRadarForGunTurn(true)
+  let j8 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 adjustRadarForGunTurn=true emitted",
+    j8{"adjustRadarForGunTurn"}.getBool(false) == true)
+
+  # negative: setRescan() not yet called → rescan absent from next intent
+  let j9 = parseJson(buildIntentJson())
+  check("TR-API-CMD-003 no rescan when setRescan not called",
+    not j9.hasKey("rescan") or j9{"rescan"}.getBool(false) == false)
+
+echo "PASS: TR-API-CMD-003 radar commands"

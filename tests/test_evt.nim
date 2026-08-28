@@ -161,3 +161,121 @@ suite "TR-API-EVT-007: EventQueue size cap":
       eq.addEvent mkSkippedTurn(0)
     check eq.getEvents().len == MAX_QUEUE_SIZE
     check MAX_QUEUE_SIZE == 256
+
+suite "TR-API-EVT-001: Event constructors store fields correctly":
+  ## Verify event objects created from schema types have correct field values.
+  ## These are plain Nim object constructors — no server protocol needed.
+  test "ScannedBotEvent stores all fields":
+    let e = ScannedBotEvent(
+      turnNumber:     5,
+      scannedByBotId: 1,
+      scannedBotId:   2,
+      energy:         80.0,
+      x:              300.0,
+      y:              400.0,
+      direction:      90.0,
+      speed:          4.0
+    )
+    check e.turnNumber     == 5
+    check e.scannedByBotId == 1
+    check e.scannedBotId   == 2
+    check e.energy         == 80.0
+    check e.x              == 300.0
+    check e.y              == 400.0
+    check e.direction      == 90.0
+    check e.speed          == 4.0
+
+  test "BulletFiredEvent stores bullet fields":
+    let b = BulletState(bulletId: 7, ownerId: 1, power: 2.5, x: 10.0, y: 20.0, direction: 45.0)
+    let e = BulletFiredEvent(turnNumber: 3, bullet: b)
+    check e.turnNumber      == 3
+    check e.bullet.bulletId == 7
+    check e.bullet.power    == 2.5
+    check e.bullet.x        == 10.0
+
+  test "HitByBulletEvent stores damage and energy":
+    let b = BulletState(bulletId: 9, ownerId: 2, power: 1.0, x: 0.0, y: 0.0, direction: 0.0)
+    let e = HitByBulletEvent(turnNumber: 8, bullet: b, damage: 4.0, energy: 60.0)
+    check e.damage == 4.0
+    check e.energy == 60.0
+
+  test "BotHitBotEvent stores rammed flag":
+    let e = BotHitBotEvent(turnNumber: 2, victimId: 3, botId: 1,
+                            energy: 50.0, x: 5.0, y: 6.0, rammed: true)
+    check e.rammed == true
+    check e.victimId == 3
+
+  test "WonRoundEvent stores turnNumber":
+    let e = WonRoundEvent(turnNumber: 42)
+    check e.turnNumber == 42
+
+  test "negative: zero-value event has default fields":
+    let e = ScannedBotEvent()
+    check e.turnNumber     == 0
+    check e.energy         == 0.0
+    check e.scannedBotId   == 0
+
+suite "TR-API-EVT-008: Condition.test() callable and overridable":
+  ## Condition is a struct with a closure field — verify it is callable
+  ## and can be assigned different implementations.
+  test "Condition.test() returns true when proc returns true":
+    let c = Condition(name: "always", test: proc(): bool = true)
+    check c.test() == true
+
+  test "Condition.test() returns false when proc returns false":
+    let c = Condition(name: "never", test: proc(): bool = false)
+    check c.test() == false
+
+  test "Condition closure captures external state":
+    var flag = false
+    let c = Condition(name: "flag", test: proc(): bool = flag)
+    check c.test() == false
+    flag = true
+    check c.test() == true
+
+  test "negative: two conditions with same name are independent":
+    let c1 = Condition(name: "x", test: proc(): bool = true)
+    let c2 = Condition(name: "x", test: proc(): bool = false)
+    check c1.test() == true
+    check c2.test() == false
+
+suite "TR-API-EVT-009: CustomEvent dispatches when Condition.test() is true":
+  ## addCustomEvents evaluates all conditions each tick and enqueues ekCustom
+  ## events for those whose test() returns true.
+  test "condition that returns true fires a custom event":
+    var eq = initEventQueue()
+    eq.addCondition(Condition(name: "fire", test: proc(): bool = true))
+    eq.addCustomEvents(turnNumber = 1)
+    let evts = eq.getEvents()
+    check evts.len == 1
+    check evts[0].kind == ekCustom
+    check evts[0].condition.name == "fire"
+
+  test "condition that returns false does not fire":
+    var eq = initEventQueue()
+    eq.addCondition(Condition(name: "no-fire", test: proc(): bool = false))
+    eq.addCustomEvents(turnNumber = 1)
+    check eq.getEvents().len == 0
+
+  test "only true conditions fire when mixed":
+    var eq = initEventQueue()
+    eq.addCondition(Condition(name: "yes", test: proc(): bool = true))
+    eq.addCondition(Condition(name: "no",  test: proc(): bool = false))
+    eq.addCustomEvents(turnNumber = 2)
+    let evts = eq.getEvents()
+    check evts.len == 1
+    check evts[0].condition.name == "yes"
+
+  test "removeConditionByName prevents future firing":
+    var eq = initEventQueue()
+    eq.addCondition(Condition(name: "to-remove", test: proc(): bool = true))
+    eq.removeConditionByName("to-remove")
+    eq.addCustomEvents(turnNumber = 1)
+    check eq.getEvents().len == 0
+
+  test "negative: condition raising exception is silently swallowed":
+    var eq = initEventQueue()
+    eq.addCondition(Condition(name: "boom", test: proc(): bool = raise newException(ValueError, "oops"); false))
+    # addCustomEvents wraps in try/except — must not propagate
+    eq.addCustomEvents(turnNumber = 1)
+    check eq.getEvents().len == 0

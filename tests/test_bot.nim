@@ -2,7 +2,7 @@
 ## Criteria: TR-API-BOT-001d, 002–008
 ## No server required — pure math and initial-state assertions.
 
-import std/[math, os]
+import std/[math, os, strutils]
 import ../src/robocode_tankroyale_botapi/utils
 import ../src/robocode_tankroyale_botapi/constants
 import ../src/robocode_tankroyale_botapi/bot_info
@@ -172,3 +172,126 @@ block:
 echo "PASS TR-API-BOT-008"
 
 echo "ALL TR-API-BOT Tier 1 tests PASSED"
+
+# ── TR-API-BOT-001a: botInfoFromEnv reads env vars and applies defaults ───────
+
+block:
+  # Set all known env vars explicitly
+  putEnv("BOT_NAME",            "EnvBot")
+  putEnv("BOT_VERSION",         "2.3")
+  putEnv("BOT_AUTHORS",         "Alice,Bob")
+  putEnv("BOT_DESCRIPTION",     "Test bot")
+  putEnv("BOT_HOMEPAGE",        "https://example.com")
+  putEnv("BOT_COUNTRY_CODES",   "US,DE")
+  putEnv("BOT_GAME_TYPES",      "classic,melee")
+  putEnv("BOT_PLATFORM",        "Nim test")
+  putEnv("BOT_PROGRAMMING_LANG","Nim")
+  putEnv("BOT_IS_DROID",        "false")
+  let info = botInfoFromEnv()
+  check info.name            == "EnvBot",           "001a: name from BOT_NAME"
+  check info.version         == "2.3",              "001a: version from BOT_VERSION"
+  check info.authors.len     == 2,                  "001a: two authors parsed"
+  check info.authors[0]      == "Alice",            "001a: first author"
+  check info.authors[1]      == "Bob",              "001a: second author"
+  check info.description     == "Test bot",         "001a: description"
+  check info.homepage        == "https://example.com", "001a: homepage"
+  check info.countryCodes.len == 2,                 "001a: two country codes"
+  check info.gameTypes.len   == 2,                  "001a: two game types"
+  check info.platform        == "Nim test",         "001a: platform"
+  check info.programmingLang == "Nim",              "001a: programmingLang"
+  check not info.isDroid,                           "001a: isDroid false"
+
+  # Default fallback: clear optional vars, check defaults kick in
+  putEnv("BOT_NAME",    "MinBot")
+  putEnv("BOT_VERSION", "1.0")
+  putEnv("BOT_AUTHORS", "Unknown")
+  delEnv("BOT_DESCRIPTION")
+  delEnv("BOT_HOMEPAGE")
+  delEnv("BOT_COUNTRY_CODES")
+  putEnv("BOT_GAME_TYPES", "classic,melee,1v1")
+  delEnv("BOT_PLATFORM")
+  delEnv("BOT_PROGRAMMING_LANG")
+  delEnv("BOT_IS_DROID")
+  let info2 = botInfoFromEnv()
+  check info2.name            == "MinBot",    "001a default: name"
+  check info2.description     == "",          "001a default: description empty"
+  check info2.homepage        == "",          "001a default: homepage empty"
+  check info2.countryCodes.len == 0,          "001a default: no country codes"
+  check info2.isDroid         == false,       "001a default: isDroid false"
+
+echo "PASS TR-API-BOT-001a"
+
+# ── TR-API-BOT-001b: Missing required env defers validation to handshake ──────
+# The Nim API has no runtime guard in botInfoFromEnv for missing BOT_NAME —
+# it falls back to "Unnamed Bot". Validation is the server's responsibility
+# (handshake rejection). Verify the fallback name is applied.
+
+block:
+  delEnv("BOT_NAME")
+  let info = botInfoFromEnv()
+  # botInfoFromEnv falls back to "Unnamed Bot" when BOT_NAME is unset
+  check info.name == "Unnamed Bot",  "001b: missing BOT_NAME falls back to Unnamed Bot"
+  # version fallback
+  delEnv("BOT_VERSION")
+  let info2 = botInfoFromEnv()
+  check info2.version == "1.0",      "001b: missing BOT_VERSION falls back to 1.0"
+
+  # negative: empty BOT_NAME env → still "Unnamed Bot" (getEnv default)
+  putEnv("BOT_NAME", "")
+  let info3 = botInfoFromEnv()
+  # getEnv("BOT_NAME", "Unnamed Bot") returns "" when set to empty — document this:
+  check info3.name == "",            "001b neg: empty BOT_NAME is empty string (getEnv behaviour)"
+
+  # Restore for subsequent tests
+  putEnv("BOT_NAME",    "TestBot")
+  putEnv("BOT_VERSION", "1.0")
+
+echo "PASS TR-API-BOT-001b"
+
+# ── TR-API-BOT-001c: Explicit args take precedence over env vars ──────────────
+# newBotInfo() is the explicit-args constructor; it always wins over env vars
+# because it takes its values directly from the call site.
+
+block:
+  putEnv("BOT_NAME",    "EnvName")
+  putEnv("BOT_VERSION", "9.9")
+  putEnv("BOT_AUTHORS", "EnvAuthor")
+
+  let info = newBotInfo(
+    name    = "ExplicitBot",
+    version = "1.2.3",
+    authors = @["Alice", "Bob"]
+  )
+  check info.name       == "ExplicitBot",  "001c: explicit name overrides env"
+  check info.version    == "1.2.3",        "001c: explicit version overrides env"
+  check info.authors[0] == "Alice",        "001c: explicit author[0]"
+  check info.authors[1] == "Bob",          "001c: explicit author[1]"
+
+  # newBotInfo does not read env vars at all — env values do not leak in
+  check info.name    != "EnvName",         "001c: env name not used"
+  check info.version != "9.9",             "001c: env version not used"
+
+  # whitespace trimming in newBotInfo
+  let info2 = newBotInfo(name = "  SpacedBot  ", version = "  0.1  ", authors = @["  Dev  "])
+  check info2.name       == "SpacedBot",   "001c: name trimmed"
+  check info2.version    == "0.1",         "001c: version trimmed"
+  check info2.authors[0] == "Dev",         "001c: author trimmed"
+
+  # negative: name exceeding MAX_NAME_LEN raises ValueError
+  let longName = "X".repeat(64)
+  var raised = false
+  try:
+    discard newBotInfo(name = longName, version = "1", authors = @["A"])
+  except ValueError:
+    raised = true
+  check raised,                            "001c neg: >MAX_NAME_LEN raises ValueError"
+
+  # country codes uppercased
+  let info3 = newBotInfo(name = "B", version = "1", authors = @["A"],
+                          countryCodes = @["us", "de"])
+  check info3.countryCodes[0] == "US",    "001c: country code uppercased"
+  check info3.countryCodes[1] == "DE",    "001c: second country code uppercased"
+
+echo "PASS TR-API-BOT-001c"
+
+echo "ALL TR-API-BOT Tier 2 tests PASSED"
