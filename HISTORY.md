@@ -2,6 +2,8 @@
 
 This package was extracted from the `nim` branch of [SirStone/tank-royale](https://github.com/SirStone/tank-royale) (a fork of [robocode-dev/tank-royale](https://github.com/robocode-dev/tank-royale)).
 
+Release 1.0.7: LIVELINESS debug logging removed; released bots built with -d:danger.
+
 ## Development timeline
 
 - **Issues #1–#6 (Wayfinder Map #1):** Behavioral parity — fixed one-tick pipeline delay via three-thread model (main=WS reader+processTurn, bot=user logic+events, sender=WS writer). All 8 sample bots passed battle test.

@@ -1,5 +1,5 @@
 # Package
-version       = "1.0.6"
+version       = "1.0.7"
 author        = "Davide Cappellini"
 description   = "Nim Bot API for Robocode Tank Royale — community-maintained"
 license       = "Apache-2.0"
