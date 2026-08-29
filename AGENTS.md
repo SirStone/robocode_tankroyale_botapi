@@ -81,3 +81,31 @@ Default label vocabulary (`needs-triage`, `needs-info`, `ready-for-agent`, `read
 ### Domain docs
 
 Single-context layout: `CONTEXT.md` + `docs/adr/` at repo root. See `docs/agents/domain.md`.
+
+## Coding Standards
+
+### Build profiles and checks
+
+Nim's default behavior gives us a clean three-tier profile with no config overrides:
+
+| Build | `assert` | `doAssert` | Runtime checks | Stack traces |
+|-------|----------|------------|----------------|--------------|
+| debug (none) | ✅ active | ❌ forbidden | all on | on |
+| `-d:release` | ✅ active | ❌ forbidden | all on | off |
+| `-d:danger` | stripped | ❌ forbidden | stripped | off |
+
+- **`assert`** is for internal invariants — conditions that can only be false due to a bug in *our* code. These fire in debug and release (catch bugs early), and are stripped only in `-d:danger` (max speed).
+- **`doAssert`** is **banned** in this codebase. Since release keeps `assert` active, `assert` already covers the "important invariant" role. `doAssert` would add an unstrippable check in `-d:danger`, violating the max-speed requirement.
+- **External conditions** (network failures, malformed server input, user bot exceptions) must use `try/except` with proper exception types — never `assert`/`doAssert`. External failures aren't bugs; they're expected runtime conditions.
+
+### Decision rule for checks
+
+```
+Is the condition driven by external input (network, server, user code)?
+  → YES: use try/except + exception (e.g. WebSocketError, CatchableError)
+  → NO:  Is it an internal invariant that should never be false?
+           → YES: use assert (fires in debug+release, stripped in danger)
+           → NO:  not a check, just normal code
+```
+
+Never use `doAssert`.
