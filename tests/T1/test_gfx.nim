@@ -127,6 +127,32 @@ suite "GFX-003 Text XML escaping":
     check svg.contains("hello world")
 
 # ---------------------------------------------------------------------------
+# GFX-005: SVG root must carry a viewBox (jsvg renders nothing without one)
+# ---------------------------------------------------------------------------
+
+suite "GFX-005 SVG root viewBox":
+  setup:
+    clearGraphics()
+
+  test "default viewBox is present before arena dimensions are set":
+    setFillColor(RED)
+    fillCircle(1, 1, 1)
+    let svg = svgOutput()
+    check svg.contains("viewBox=\"0 0 5000 5000\"")
+
+  test "svg root includes a viewBox matching the set arena dimensions":
+    setArenaDimensions(800, 600)
+    setFillColor(RED)
+    fillCircle(400, 300, 20)
+    let svg = svgOutput()
+    check svg.contains("<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 800 600\">")
+
+  test "viewBox SVG is well-formed XML":
+    setArenaDimensions(640, 480)
+    drawLine(0, 0, 100, 100)
+    discard parseXml(svgOutput())
+
+# ---------------------------------------------------------------------------
 # GFX-004: Identical draw sequences produce identical SVG
 # ---------------------------------------------------------------------------
 

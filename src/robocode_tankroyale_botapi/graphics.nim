@@ -42,9 +42,11 @@
 ##
 ## ## Coordinate System
 ##
-## The coordinate system matches the game: (0, 0) is top-left, X increases
-## right, Y increases down. The arena size is available via `getArenaWidth()`
-## and `getArenaHeight()`.
+## The coordinate system matches the game: (0, 0) is bottom-left, X increases
+## right, Y increases up. The arena size is available via `getArenaWidth()`
+## and `getArenaHeight()`. These are the raw server coordinates reported by
+## `getX()`/`getY()` and event positions -- no transform is applied, so a shape
+## drawn at `(getX(), getY())` appears exactly on top of your bot.
 ##
 ## ## Style State
 ##
@@ -76,6 +78,13 @@ var gStrokeWidth: float = 1.0
 var gFontFamily:  string = "Arial"  # never rebound at runtime (setFont unused)
 var gFontSize:    float = 12.0
 
+# Arena dimensions, used to size the <svg> root's viewBox. The Tank Royale GUI
+# renders debug-graphics SVG with jsvg, which establishes a 0x0 viewport and
+# draws NOTHING if the <svg> element has no viewBox. Defaults match the official
+# SvgGraphics.toSvg() and are overwritten once the server GameSetup is known.
+var gArenaWidth*  = 5000
+var gArenaHeight* = 5000
+
 proc appendSvg(s: string) =
   ## Internal: append raw SVG to the buffer.
   gSvgBuffer.add s
@@ -88,13 +97,22 @@ proc svgAttrs(): string =
   ## Current stroke/fill/width as SVG attribute string.
   &"stroke=\"{gStrokeColor.toHex}\" fill=\"{gFillColor.toHex}\" stroke-width=\"{gStrokeWidth}\""
 
+proc setArenaDimensions*(width, height: int) =
+  ## Record the battlefield dimensions so the emitted SVG root carries a
+  ## `viewBox` matching the arena. The GUI (jsvg) renders nothing without a
+  ## viewBox, so this must be set before debug graphics can be displayed.
+  ## Called automatically by the API when the game setup is received.
+  if width > 0:  gArenaWidth  = width
+  if height > 0: gArenaHeight = height
+
 proc svgOutput*(): string =
   ## Returns the SVG fragment for this tick, or "" if nothing was drawn.
   ##
   ## Called automatically by the API at the end of each tick to include
   ## debug graphics in the BotIntent sent to the server.
   if gSvgBuffer.len == 0: return ""
-  "<svg xmlns=\"http://www.w3.org/2000/svg\">" & gSvgBuffer & "</svg>"
+  "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 " & $gArenaWidth & " " &
+    $gArenaHeight & "\">" & gSvgBuffer & "</svg>"
 
 proc clearGraphics*() =
   ## Reset buffer and all style globals to defaults. Called after each tick.

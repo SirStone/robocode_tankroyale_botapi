@@ -176,7 +176,7 @@ proc getX*(): float =
   withLock(gLock): result = gState.x
 
 proc getY*(): float =
-  ## Returns your bot's current Y coordinate in the arena (0 is top edge).
+  ## Returns your bot's current Y coordinate in the arena (0 is bottom edge).
   withLock(gLock): result = gState.y
 
 proc getDirection*(): float =
@@ -1289,6 +1289,7 @@ proc setGameStarted*(myId: int; setup: GameSetup; teammateIds: seq[int]) =
     gMyId        = myId
     gGameSetup   = setup
     gTeammateIds = teammateIds
+  setArenaDimensions(setup.arenaWidth, setup.arenaHeight)  # size the SVG viewBox
   debugLog("=== GAME START myId=" & $myId & " ===")
 
 proc startRound*() =
