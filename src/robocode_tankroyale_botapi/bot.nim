@@ -73,6 +73,7 @@ type
 
 # WebSocket
 var gWs*: SyncWebSocket
+var gPendingMsg*: string  ## Message received during waitForBotThreadWhileServicingWs; main loop re-dispatches.
 
 # Thread handles
 var gBotThread:    Thread[void]
@@ -1397,6 +1398,24 @@ proc waitForBotThread*() =
   ## Block until the bot thread finishes its current round loop (is back to idle).
   ## Does NOT join — the thread persists until shutdownBotThread().
   discard gRoundDoneChan.recv()
+
+proc waitForBotThreadWhileServicingWs*(ws: SyncWebSocket) =
+  ## Like waitForBotThread but interleaves ws.receiveWithTimeout so server pings
+  ## are answered while the main thread waits at round/game boundaries.
+  ## Any non-ping text frame received during the wait is stored in gPendingMsg
+  ## for the receive loop to re-dispatch once this returns.
+  ## ponytail: stores only the first such message; additional ones are dropped.
+  ## Upgrade path: replace gPendingMsg with a seq if multiple messages can arrive.
+  gPendingMsg = ""
+  while true:
+    let (done, _) = gRoundDoneChan.tryRecv()
+    if done: return
+    let (timedOut, msg) = ws.receiveWithTimeout(1_000)
+    if not timedOut:
+      if msg.len > 0 and gPendingMsg.len == 0:
+        gPendingMsg = msg  # first unexpected message — main loop will re-dispatch
+      elif msg.len == 0:
+        return  # connection closed
 
 proc shutdownBotThread*() =
   ## Send final shutdown to the bot thread and join it. Call once at process exit.

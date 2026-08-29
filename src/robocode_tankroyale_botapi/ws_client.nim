@@ -63,6 +63,55 @@ proc encodeTextFrame*(payload: string, masked: bool = true): string =
 
   result = frame
 
+proc decodeFrameTimeout*(socket: Socket, timeoutMs: int): string =
+  ## Like decodeFrame but with an explicit per-read timeout.
+  ## Returns "" on close frame. Raises TimeoutError on timeout, WebSocketError on hard fail.
+  while true:
+    var header: array[2, uint8]
+    discard socket.recv(addr header[0], 2, timeoutMs)
+    let fin    = (header[0] and 0x80) != 0
+    let opcode = header[0] and 0x0F
+    let masked = (header[1] and 0x80) != 0
+    var plen   = int(header[1] and 0x7F)
+
+    if plen == 126:
+      var ext: array[2, uint8]
+      discard socket.recv(addr ext[0], 2, timeoutMs)
+      plen = int(ext[0]) shl 8 or int(ext[1])
+    elif plen == 127:
+      var ext: array[8, uint8]
+      discard socket.recv(addr ext[0], 8, timeoutMs)
+      plen = 0
+      for b in ext: plen = (plen shl 8) or int(b)
+
+    var maskKey: array[4, uint8]
+    if masked:
+      discard socket.recv(addr maskKey[0], 4, timeoutMs)
+
+    var payload = newString(plen)
+    if plen > 0:
+      discard socket.recv(addr payload[0], plen, timeoutMs)
+
+    if masked:
+      for i in 0 ..< plen:
+        payload[i] = char(uint8(payload[i]) xor maskKey[i mod 4])
+
+    case opcode
+    of 0x8:  # close
+      result = ""
+      return
+    of 0x9:  # ping — send pong
+      let pong = char(0x8A) & char(plen) & payload
+      socket.send(pong)
+      continue
+    of 0xA:  # pong — ignore
+      continue
+    else:
+      if not fin:
+        raise newException(WebSocketError, "Fragmented frames not supported")
+      result = payload
+      return
+
 proc decodeFrame*(socket: Socket): string =
   ## Read one complete WebSocket frame from the socket and return the payload.
   ## Handles text frames; pings are responded to automatically.
@@ -168,6 +217,21 @@ proc receive*(ws: SyncWebSocket): string =
     result = decodeFrame(ws.socket)
   except TimeoutError:
     raise  # let caller decide: retry vs disconnect
+  except Exception as e:
+    ws.connected = false
+    raise newException(WebSocketError, "Receive failed: " & e.msg)
+
+proc receiveWithTimeout*(ws: SyncWebSocket, timeoutMs: int): tuple[timedOut: bool, msg: string] =
+  ## Try to receive one frame with the given timeout.
+  ## Returns (timedOut=true, msg="") on timeout; (false, msg) on success; (false, "") on close.
+  ## Pings inside decodeFrameTimeout are answered automatically.
+  ## Raises WebSocketError on hard socket failure.
+  if not ws.connected:
+    return (false, "")
+  try:
+    result = (false, decodeFrameTimeout(ws.socket, timeoutMs))
+  except TimeoutError:
+    result = (true, "")
   except Exception as e:
     ws.connected = false
     raise newException(WebSocketError, "Receive failed: " & e.msg)

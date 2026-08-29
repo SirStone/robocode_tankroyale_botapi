@@ -94,7 +94,7 @@ proc svgOutput*(): string =
   ## Called automatically by the API at the end of each tick to include
   ## debug graphics in the BotIntent sent to the server.
   if gSvgBuffer.len == 0: return ""
-  "<g>" & gSvgBuffer & "</g>"
+  "<svg xmlns=\"http://www.w3.org/2000/svg\">" & gSvgBuffer & "</svg>"
 
 proc clearGraphics*() =
   ## Reset buffer and all style globals to defaults. Called after each tick.

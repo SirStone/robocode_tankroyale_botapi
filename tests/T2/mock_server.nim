@@ -291,7 +291,11 @@ proc clientLoop(ctx: ptr MockCtx; sock: AsyncSocket) {.async.} =
       if outMsg.len == 0:
         sock.close()  # force EOF on bot side so its recv fails immediately
         return  # stop sentinel
-      await sock.sendFrame(outMsg)
+      if outMsg == "\x00PING":
+        # Send a raw WS ping frame (opcode 0x9, no payload)
+        await sock.send(char(0x89) & char(0x00))
+      else:
+        await sock.sendFrame(outMsg)
 
     # Check stop signal
     let (hasStop, _) = ctx.stopChan.tryRecv()
@@ -425,6 +429,11 @@ proc sendGameEnded*(srv: MockServer; numberOfRounds: int = 1) =
 proc sendRaw*(srv: MockServer; json: string) =
   ## Inject any raw JSON (for unknown-type / error-path testing).
   srv.ctx.outboundChan.send(json)
+
+proc sendPing*(srv: MockServer) =
+  ## Send a raw WS ping frame (opcode 0x9) to the connected bot.
+  ## The bot's WS client must respond with a pong; the mock server auto-ignores it.
+  srv.ctx.outboundChan.send("\x00PING")
 
 proc stopMockServer*(srv: var MockServer) =
   srv.ctx.outboundChan.send("")  # sentinel → break client loop

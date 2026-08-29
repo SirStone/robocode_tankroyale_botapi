@@ -229,22 +229,26 @@ proc runReceiveLoop*(
   var consecutiveTimeouts = 0
   while ws.connected:
     var msg: string
-    try:
-      msg = ws.receive()
-      consecutiveTimeouts = 0  # reset on any successful recv
-    except TimeoutError:
-      inc consecutiveTimeouts
-      stderr.writeLine "[ws] recv timeout (" & $consecutiveTimeouts & "/" &
-        $WS_MAX_CONSECUTIVE_TIMEOUTS & ") — server silent, retrying"
-      if consecutiveTimeouts >= WS_MAX_CONSECUTIVE_TIMEOUTS:
-        stderr.writeLine "[ws] max consecutive timeouts reached — disconnecting"
-        ws.connected = false
+    if gPendingMsg.len > 0:
+      msg = gPendingMsg
+      gPendingMsg = ""
+    else:
+      try:
+        msg = ws.receive()
+        consecutiveTimeouts = 0  # reset on any successful recv
+      except TimeoutError:
+        inc consecutiveTimeouts
+        stderr.writeLine "[ws] recv timeout (" & $consecutiveTimeouts & "/" &
+          $WS_MAX_CONSECUTIVE_TIMEOUTS & ") — server silent, retrying"
+        if consecutiveTimeouts >= WS_MAX_CONSECUTIVE_TIMEOUTS:
+          stderr.writeLine "[ws] max consecutive timeouts reached — disconnecting"
+          ws.connected = false
+          break
+        continue
+      except Exception as e:
+        stderr.writeLine "[ws] receive error: " & e.msg
+        gBot.onConnectionError(ConnectionErrorEvent(serverUrl: serverUrl, error: e.msg))
         break
-      continue
-    except Exception as e:
-      stderr.writeLine "[ws] receive error: " & e.msg
-      gBot.onConnectionError(ConnectionErrorEvent(serverUrl: serverUrl, error: e.msg))
-      break
 
     if msg.len == 0:
       break  # connection closed
@@ -279,7 +283,7 @@ proc runReceiveLoop*(
         debugLog("[RE-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
         signalStop()         # unblock bot thread blocked in go()
         debugLog("[WT-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
-        waitForBotThread()   # wait for bot to finish round loop (back to idle)
+        waitForBotThreadWhileServicingWs(ws)
         debugLog("[WT-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
         debugLog("[DR-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
@@ -293,7 +297,7 @@ proc runReceiveLoop*(
         setRunning(false)
         let e = node.to(GameEndedEventForBot)
         signalStop()         # unblock bot thread if mid-round
-        waitForBotThread()   # wait for round loop to finish
+        waitForBotThreadWhileServicingWs(ws)
         drainTickChan()
         drainIntentChan()
         drainEventChan()
@@ -301,7 +305,7 @@ proc runReceiveLoop*(
       of "GameAbortedEvent":
         setRunning(false)
         signalStop()         # unblock bot thread (game aborted mid-round)
-        waitForBotThread()   # wait for round loop to finish
+        waitForBotThreadWhileServicingWs(ws)
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
         drainIntentChan()    # drain while bot is idle — no more writes this round
         drainEventChan()     # drop any unconsumed tick events
