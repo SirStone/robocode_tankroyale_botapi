@@ -15,6 +15,27 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Verify release tag is valid and matches package version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG="${{ github.ref_name }}"
+          # Nimble only installs git tags that parse as a version.
+          # Accept vX[.Y[.Z]][-prerelease][+build], like v1.0.6 or v1.0.4-rc1.
+          if [[ ! "$TAG" =~ ^v[0-9]+(\.[0-9]+)*([-+][0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Tag '$TAG' is not a valid Nimble release tag (expected vX.Y.Z, optionally with a -prerelease suffix)."
+            exit 1
+          fi
+          # The tag's version must match the version declared in the .nimble file.
+          PKG_VERSION="$(sed -n 's/^version[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' robocode_tankroyale_botapi.nimble)"
+          TAG_CORE="${TAG#v}";  TAG_CORE="${TAG_CORE%%[-+]*}"
+          NIM_CORE="${PKG_VERSION%%[-+]*}"
+          if [[ "$TAG_CORE" != "$NIM_CORE" ]]; then
+            echo "::error::Tag version '$TAG_CORE' does not match the version '$PKG_VERSION' in robocode_tankroyale_botapi.nimble. Bump the version before releasing."
+            exit 1
+          fi
+          echo "OK: tag '$TAG' is a valid release tag and matches package version '$PKG_VERSION'."
+
       - uses: jiro4989/setup-nim-action@v2
         with:
           nim-version: stable
@@ -28,6 +49,9 @@ jobs:
 
       - name: Install dependencies
         run: nimble install -y --depsOnly
+
+      - name: Compile-check API module
+        run: nim c --threads:on --mm:orc --hints:off -o:/tmp/api_check src/robocode_tankroyale_botapi.nim
 
       - name: Set up Java 11
         uses: actions/setup-java@v4
