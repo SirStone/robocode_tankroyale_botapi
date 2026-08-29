@@ -10,7 +10,7 @@
 ##
 ##    ```nim
 ##    import robocode_tankroyale_botapi
-##    
+##
 ##    type MyBot = ref object of Bot
 ##    method run(bot: MyBot) =
 ##      # Your bot logic here
@@ -153,7 +153,7 @@ proc handleGameStarted(ws: SyncWebSocket; node: JsonNode) =
   let myId = node{"myId"}.getInt
   setGameStarted(myId, setup, teammateIds)
 
-  # Build event object manually — GameStartedEventForBot has no turnNumber
+  # Build event object manually - GameStartedEventForBot has no turnNumber
   let e = GameStartedEventForBot(
     `type`:         "GameStartedEventForBot",
     myId:           myId,
@@ -190,12 +190,7 @@ proc handleTick(node: JsonNode) =
 
   signalTick(tick, events)          # update shared state
   processTickOnMainThread()         # motion tracking (while bot is blocked)
-  wakeBotThread()                   # wake bot — state + motion ready
-
-const WS_MAX_CONSECUTIVE_TIMEOUTS = 5
-  ## Maximum consecutive WebSocket receive timeouts before disconnecting.
-  ## If the server goes silent for this many consecutive reads, the connection
-  ## is considered dead and the bot will shut down.
+  wakeBotThread()                   # wake bot - state + motion ready
 
 proc runReceiveLoop*(
   ws: SyncWebSocket;
@@ -215,8 +210,8 @@ proc runReceiveLoop*(
   ## - Updates shared game state
   ## - Signals the bot thread when a new tick arrives
   ##
-  ## The loop runs until the connection is closed or too many consecutive
-  ## timeouts occur (see `WS_MAX_CONSECUTIVE_TIMEOUTS`).
+  ## The loop runs until the connection is closed or a fatal error occurs.
+  ## Timeouts are ignored; the bot waits indefinitely for server messages.
   ##
   ## **Note**: This is an internal procedure. You typically don't call it
   ## directly; use `start()` instead.
@@ -226,8 +221,10 @@ proc runReceiveLoop*(
   ## - `info`: Your bot's identity information
   ## - `secret`: Optional server secret for authentication
   ## - `serverUrl`: The server URL (used for error reporting)
-  var consecutiveTimeouts = 0
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: alive — entering receive loop"
   while ws.connected:
+    stderr.writeLine "[LIVELINESS] MAIN_THREAD: top-of-loop ws.connected=" & $ws.connected
+    stderr.writeLine "[LIVELINESS] MAIN_THREAD: heartbeat round=" & $getRound() & " turn=" & $getTurn() & " ws.connected=" & $ws.connected & " running=" & $isRunning()
     var msg: string
     if gPendingMsg.len > 0:
       msg = gPendingMsg
@@ -235,15 +232,8 @@ proc runReceiveLoop*(
     else:
       try:
         msg = ws.receive()
-        consecutiveTimeouts = 0  # reset on any successful recv
       except TimeoutError:
-        inc consecutiveTimeouts
-        stderr.writeLine "[ws] recv timeout (" & $consecutiveTimeouts & "/" &
-          $WS_MAX_CONSECUTIVE_TIMEOUTS & ") — server silent, retrying"
-        if consecutiveTimeouts >= WS_MAX_CONSECUTIVE_TIMEOUTS:
-          stderr.writeLine "[ws] max consecutive timeouts reached — disconnecting"
-          ws.connected = false
-          break
+        debugLog "[ws] recv timeout, retrying"
         continue
       except Exception as e:
         stderr.writeLine "[ws] receive error: " & e.msg
@@ -251,6 +241,7 @@ proc runReceiveLoop*(
         break
 
     if msg.len == 0:
+      stderr.writeLine "[ws] server closed connection - disconnected"
       break  # connection closed
 
     var node: JsonNode
@@ -261,12 +252,34 @@ proc runReceiveLoop*(
       continue
 
     let msgType = node{"type"}.getStr
+    stderr.writeLine "[LIVELINESS] MAIN_THREAD: msg_type=" & msgType & " ws.connected=" & $ws.connected
     try:
       case msgType
       of "ServerHandshake":
         handleServerHandshake(ws, node, info, secret)
       of "GameStartedEventForBot":
+        # A new game can start mid-fight when the host restarts the match; the
+        # server does NOT send GameAbortedEvent in this path. Reference bots keep
+        # the same WebSocket and reply with BotReady quickly, because the server
+        # enforces readyTimeout and drops a bot that answers late. Order matters:
+        #   1) kick the stale round to stop FIRST (fast signalStop, non-blocking)
+        #      so onGameStarted sees a clean state;
+        #   2) then handleGameStarted sets state, publishes onGameStarted, and
+        #      sends BotReady -- all fast, well within readyTimeout;
+        #   3) only AFTER BotReady is out do the blocking wait for the old bot
+        #      thread, so the wait can never delay BotReady past readyTimeout.
+        # (If we waited on the bot thread before sending BotReady, the old round's
+        # unwinding would delay our response and the server would kick us.)
+        let wasRunning = isRunning()
+        if wasRunning:
+          setRunning(false)
+          signalStop()
         handleGameStarted(ws, node)
+        if wasRunning:
+          waitForBotThreadWhileServicingWs(ws)
+          drainTickChan()      # drain stop signal if bot exited via isRunning() check
+          drainIntentChan()    # drain while bot is idle - no more writes this round
+          drainEventChan()     # drop any unconsumed tick events
       of "RoundStartedEvent":
         let e = node.to(RoundStartedEvent)
         debugLog("[NS-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
@@ -287,7 +300,7 @@ proc runReceiveLoop*(
         debugLog("[WT-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
         debugLog("[DR-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
-        drainIntentChan()    # drain while bot is idle — no more writes this round
+        drainIntentChan()    # drain while bot is idle - no more writes this round
         drainEventChan()     # drop any unconsumed tick events (stale into next round)
         debugLog("[DR-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
         debugLog("[ONRE-ENTER] round=" & $e.roundNumber & " tid=" & $getThreadId())
@@ -307,7 +320,7 @@ proc runReceiveLoop*(
         signalStop()         # unblock bot thread (game aborted mid-round)
         waitForBotThreadWhileServicingWs(ws)
         drainTickChan()      # drain stop signal if bot exited via isRunning() check
-        drainIntentChan()    # drain while bot is idle — no more writes this round
+        drainIntentChan()    # drain while bot is idle - no more writes this round
         drainEventChan()     # drop any unconsumed tick events
         gBot.onGameAborted()
       of "SkippedTurnEvent":
@@ -335,6 +348,7 @@ proc runReceiveLoop*(
     drainTickChan()
     drainIntentChan()
     drainEventChan()
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: exiting receive loop — ws.connected=" & $ws.connected
   shutdownBotThread()  # final join of persistent thread
   gBot.onDisconnected(DisconnectedEvent(serverUrl: serverUrl))
 
@@ -377,16 +391,17 @@ proc start*(
   ##
   ## ```nim
   ## import robocode_tankroyale_botapi
-  ## 
+  ##
   ## type MyBot = ref object of Bot
   ## method run(bot: MyBot) =
   ##   while true:
   ##     forward(100)
   ##     turnLeft(90)
-  ## 
+  ##
   ## var bot = MyBot()
   ## start(bot, "MyBot.json")
   ## ```
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: start() called"
   gBot = bot
   gBotInfo = loadBotInfo(jsonFile)
   initGlobals()
@@ -394,13 +409,21 @@ proc start*(
   let serverUrl    = getEnv("SERVER_URL", "ws://localhost:7654")
   let serverSecret = getEnv("SERVER_SECRET", "")
 
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: connecting to serverUrl=" & serverUrl
   try:
     gWs = newSyncWebSocket(serverUrl)
   except Exception as e:
     stderr.writeLine "[start] Cannot connect to " & serverUrl & ": " & e.msg
     quit(1)
 
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: WebSocket connected successfully"
+
   bot.onConnected(ConnectedEvent(serverUrl: serverUrl))
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: connected, starting sender thread"
   startSenderThread()
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: sender thread started"
   runReceiveLoop(gWs, gBotInfo, serverSecret, serverUrl)
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: runReceiveLoop returned, stopping sender"
   stopSenderThread()
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: sender thread stopped"
+  stderr.writeLine "[LIVELINESS] MAIN_THREAD: shutdown complete, process exiting"  # note: shutdownBotThread() + onDisconnected already ran at end of runReceiveLoop
