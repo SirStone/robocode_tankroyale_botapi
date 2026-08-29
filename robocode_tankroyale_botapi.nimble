@@ -19,6 +19,7 @@ task unit, "Run unit tests":
   exec "nim compile --run tests/T1/test_utl.nim"
   exec "nim compile --run tests/T1/test_gfx.nim"
   exec "nim compile --run tests/T2/test_tck.nim"
+  exec "nim compile --run tests/extra/test_two_games.nim"
 
 task fetch_test_data, "Download shared JSON test definitions from upstream Tank Royale repo":
   let baseUrl = "https://raw.githubusercontent.com/robocode-dev/tank-royale/main/bot-api/tests/shared/"

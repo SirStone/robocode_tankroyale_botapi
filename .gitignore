@@ -67,3 +67,6 @@ tests/T2/test_[a-z]*[!.nim]
 tests/T2/mock_server
 
 .claude/worktrees/
+
+# Compiled extra test binaries (extensionless on Linux)
+tests/extra/test_[a-z]*[!.nim]

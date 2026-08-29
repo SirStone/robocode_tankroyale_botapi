@@ -307,21 +307,42 @@ proc runReceiveLoop*(
         gBot.onRoundEnded(e)
         debugLog("[ONRE-EXIT] round=" & $e.roundNumber & " tid=" & $getThreadId())
       of "GameEndedEventForBot":
-        setRunning(false)
         let e = node.to(GameEndedEventForBot)
-        signalStop()         # unblock bot thread if mid-round
-        waitForBotThreadWhileServicingWs(ws)
-        drainTickChan()
-        drainIntentChan()
-        drainEventChan()
+        # Bot is only EVER mid-round if running==true. When the game ends after
+        # the final RoundEndedEventForBot (the user's symptom: running==false at
+        # GameEnded), the bot thread is ALREADY idle (blocked at gStartRoundChan),
+        # and its round-done signal was already consumed by the RoundEnded wait.
+        # In that state we must NOT signalStop (it would leave a stray `false` in
+        # gTickChan that the next round's first gTickChan.recv() would misread as
+        # "stop before first tick", skipping the whole new round) and must NOT
+        # waitForBotThreadWhileServicingWs (no round-done is ever coming — deadlock
+        # until the ws closes, so the server can never start a new game on this ws).
+        if isRunning():
+          setRunning(false)
+          signalStop()         # unblock bot thread if mid-round
+          waitForBotThreadWhileServicingWs(ws)
+          drainTickChan()
+          drainIntentChan()
+          drainEventChan()
+        else:
+          # already idle: just drop any leftovers; do not inject a stop signal
+          drainTickChan()
+          drainIntentChan()
+          drainEventChan()
         gBot.onGameEnded(e)
       of "GameAbortedEvent":
-        setRunning(false)
-        signalStop()         # unblock bot thread (game aborted mid-round)
-        waitForBotThreadWhileServicingWs(ws)
-        drainTickChan()      # drain stop signal if bot exited via isRunning() check
-        drainIntentChan()    # drain while bot is idle - no more writes this round
-        drainEventChan()     # drop any unconsumed tick events
+        # Same invariant as GameEnded: only wait/signalStop when actually mid-round.
+        if isRunning():
+          setRunning(false)
+          signalStop()         # unblock bot thread (game aborted mid-round)
+          waitForBotThreadWhileServicingWs(ws)
+          drainTickChan()      # drain stop signal if bot exited via isRunning() check
+          drainIntentChan()    # drain while bot is idle - no more writes this round
+          drainEventChan()     # drop any unconsumed tick events
+        else:
+          drainTickChan()
+          drainIntentChan()
+          drainEventChan()
         gBot.onGameAborted()
       of "SkippedTurnEvent":
         let e = node.to(SkippedTurnEvent)
