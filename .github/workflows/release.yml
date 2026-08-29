@@ -110,7 +110,7 @@ jobs:
             dir=$(dirname "$src")
             name=$(basename "$dir")
             mkdir -p "staging/$name"
-            nim c --threads:on --hints:off -o:"staging/$name/$name" "$src"
+            nim c --threads:on --hints:off -d:danger -o:"staging/$name/$name" "$src"
             cp "$dir"/*.sh "$dir"/*.cmd "$dir"/*.json "staging/$name/"
             chmod +x "staging/$name/$name" "staging/$name"/*.sh
           done
@@ -124,7 +124,7 @@ jobs:
             $src = "sample_bots/$name/$name.nim"
             if (Test-Path $src) {
               New-Item -ItemType Directory -Force -Path "staging/$name" | Out-Null
-              nim c --threads:on --hints:off "-o:staging/$name/$name.exe" $src
+              nim c --threads:on --hints:off -d:danger "-o:staging/$name/$name.exe" $src
               Copy-Item "sample_bots/$name/*.sh"   "staging/$name/" -ErrorAction SilentlyContinue
               Copy-Item "sample_bots/$name/*.cmd"  "staging/$name/"
               Copy-Item "sample_bots/$name/*.json" "staging/$name/"
