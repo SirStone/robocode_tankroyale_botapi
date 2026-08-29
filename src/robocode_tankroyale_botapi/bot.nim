@@ -1199,17 +1199,11 @@ proc botThreadEntry() {.thread.} =
   ## Each iteration: wait for start-round → run bot → signal round-done.
   {.cast(gcsafe).}:
     while true:
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: heartbeat  dir=" & $getDirection() & " gunDir=" & $getGunDirection() & " speed=" & $getSpeed() & " running=" & $isRunning() & " turn=" & $getTurn()
       # Wait for main thread to signal a new round (true) or final shutdown (false)
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: entering bot thread loop, waiting for round signal"
       let startRound = gStartRoundChan.recv()
       if not startRound:
         debugLog("[DBG] botThreadEntry: shutdown signal — exiting")
         break
-
-      var roundVal = 0
-      withLock(gLock): roundVal = gRound
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: new round signal received, round=" & $roundVal
 
       # Reset graphics + intent buffers (same thread, no heap crossing).
       clearGraphics()
@@ -1231,18 +1225,12 @@ proc botThreadEntry() {.thread.} =
         "  prevDir=" & $gPreviousDirection &
         "  prevGunDir=" & $gPreviousGunDirection)
 
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: first tick received"
       dispatchPendingEvents(gBot)  # dispatch events embedded in the first tick
 
-      withLock(gLock): roundVal = gRound
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: calling run() round=" & $roundVal
       try:
         gBot.run()
       except Exception as e:
         stderr.writeLine "[bot] run() exception: " & e.msg
-
-      withLock(gLock): roundVal = gRound
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: run() exited, entering skip-loop round=" & $roundVal
 
       # After run() exits, keep calling go() to skip turns until round/game ends
       while isRunning():
@@ -1250,10 +1238,7 @@ proc botThreadEntry() {.thread.} =
         except: break
 
       # Signal main thread: round loop finished, back to idle
-      withLock(gLock): roundVal = gRound
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: sending round-done signal round=" & $roundVal
       gRoundDoneChan.send(true)
-      stderr.writeLine "[LIVELINESS] BOT_THREAD: round done, waiting for next round"
       debugLog("[DBG] botThreadEntry: round done, waiting for next round")
 
 # ---------------------------------------------------------------------------
@@ -1338,23 +1323,15 @@ proc senderThreadEntry() {.thread.} =
   ## trySend never wedges. A dead socket just discards intents (the main
   ## receive loop detects the broken connection and exits cleanly).
   {.cast(gcsafe).}:
-    stderr.writeLine "[LIVELINESS] SENDER_THREAD: starting"
-    var sentCount = 0
     while true:
-      stderr.writeLine "[LIVELINESS] SENDER_THREAD: heartbeat intents_sent=" & $sentCount & " ws.connected=" & $gWs.connected
-      stderr.writeLine "[LIVELINESS] SENDER_THREAD: waiting for intent"
       let json = gIntentChan.recv()
       if json.len == 0: break  # sentinel: stop
-      stderr.writeLine "[LIVELINESS] SENDER_THREAD: got intent len=" & $json.len
-      inc sentCount
       try:
         gWs.send(json)
-        stderr.writeLine "[LIVELINESS] SENDER_THREAD: sent intent len=" & $json.len
       except Exception as e:
         gWsFailed = true
-        stderr.writeLine "[LIVELINESS] SENDER_THREAD: ws.send failed, continuing drain — " & e.msg
+        stderr.writeLine "[bot] ws.send failed: " & e.msg
         debugLog("[SENDER-ERR] " & e.msg)
-        stderr.writeLine "[LIVELINESS] SENDER_THREAD: draining intent, ws.connected=" & $gWs.connected
         # drain without blocking: bot's go() uses trySend, so the channel is
         # either empty or has at most one fresh intent — the next recv takes it
         continue

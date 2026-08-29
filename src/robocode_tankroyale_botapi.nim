@@ -221,10 +221,7 @@ proc runReceiveLoop*(
   ## - `info`: Your bot's identity information
   ## - `secret`: Optional server secret for authentication
   ## - `serverUrl`: The server URL (used for error reporting)
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: alive — entering receive loop"
   while ws.connected:
-    stderr.writeLine "[LIVELINESS] MAIN_THREAD: top-of-loop ws.connected=" & $ws.connected
-    stderr.writeLine "[LIVELINESS] MAIN_THREAD: heartbeat round=" & $getRound() & " turn=" & $getTurn() & " ws.connected=" & $ws.connected & " running=" & $isRunning()
     var msg: string
     if gPendingMsg.len > 0:
       msg = gPendingMsg
@@ -252,7 +249,6 @@ proc runReceiveLoop*(
       continue
 
     let msgType = node{"type"}.getStr
-    stderr.writeLine "[LIVELINESS] MAIN_THREAD: msg_type=" & msgType & " ws.connected=" & $ws.connected
     try:
       case msgType
       of "ServerHandshake":
@@ -369,7 +365,6 @@ proc runReceiveLoop*(
     drainTickChan()
     drainIntentChan()
     drainEventChan()
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: exiting receive loop — ws.connected=" & $ws.connected
   shutdownBotThread()  # final join of persistent thread
   gBot.onDisconnected(DisconnectedEvent(serverUrl: serverUrl))
 
@@ -422,7 +417,6 @@ proc start*(
   ## var bot = MyBot()
   ## start(bot, "MyBot.json")
   ## ```
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: start() called"
   gBot = bot
   gBotInfo = loadBotInfo(jsonFile)
   initGlobals()
@@ -430,21 +424,13 @@ proc start*(
   let serverUrl    = getEnv("SERVER_URL", "ws://localhost:7654")
   let serverSecret = getEnv("SERVER_SECRET", "")
 
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: connecting to serverUrl=" & serverUrl
   try:
     gWs = newSyncWebSocket(serverUrl)
   except Exception as e:
     stderr.writeLine "[start] Cannot connect to " & serverUrl & ": " & e.msg
     quit(1)
 
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: WebSocket connected successfully"
-
   bot.onConnected(ConnectedEvent(serverUrl: serverUrl))
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: connected, starting sender thread"
   startSenderThread()
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: sender thread started"
   runReceiveLoop(gWs, gBotInfo, serverSecret, serverUrl)
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: runReceiveLoop returned, stopping sender"
   stopSenderThread()
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: sender thread stopped"
-  stderr.writeLine "[LIVELINESS] MAIN_THREAD: shutdown complete, process exiting"  # note: shutdownBotThread() + onDisconnected already ran at end of runReceiveLoop
