@@ -46,5 +46,4 @@ task test, "Run all tests (unit + battle integration)":
   exec "nimble fetch_test_data"
   exec "nimble unit"
   when hostOS != "windows":
-    exec "nimble build"
     exec "tests/battle_runner/run_battle_test.sh"
