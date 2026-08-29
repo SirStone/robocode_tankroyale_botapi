@@ -85,7 +85,7 @@ license     = "MIT"
 bin         = @["MyFirstBot"]
 
 requires "nim >= 2.0.0"
-requires "robocode_tankroyale_botapi >= 1.0.5"
+requires "robocode_tankroyale_botapi >= 1.0.6"
 ```
 
 #### File 2: `MyFirstBot.json`
